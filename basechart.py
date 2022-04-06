@@ -2,6 +2,7 @@ import os
 import pysam
 import argparse
 import concurrent.futures
+import math
 
 
 def calculate_region_percentages(bam, ref, dp, start, end):
@@ -22,11 +23,14 @@ def calculate_region_percentages(bam, ref, dp, start, end):
 
             row = []
             coverage = pileupcolumn.n
+            base_probabilities = [count / coverage for count in base_count.values()]
+            base_percentages = [round(100 * probability, dp) for probability in base_probabilities]
 
             row.append(str(pileupcolumn.pos))
-            row.extend([str(round(100 * count / coverage, dp)) for count in base_count.values()])
+            row.extend([str(x) for x in base_percentages])
             row.append(str(round(100 * sum(base_count.values()) / coverage, dp)))
-            
+            row.append(str(sum([-(x * math.log2(x)) if x != 0 else 0 for x in base_probabilities])))
+
             region.append('\t'.join(row))
 
     samfile.close()
@@ -66,10 +70,13 @@ def main():
     parser.add_argument('--bam', required=True, help='path to BAM file')
     parser.add_argument('--ref', required=True, help='reference name')
     parser.add_argument('--index', default=None, help='path to index file')
-    parser.add_argument('--dp', default=2, help='decimal places, default=2')
-    parser.add_argument('--max-workers', default=8, help='default=8')
     parser.add_argument('--totals', default=False, action='store_true', help='display base counts instead of percentages')
+    parser.add_argument('--decimal-places', default=2, type=int, help='default = 2')
+    parser.add_argument('--max-processes', default=None, type=int, help='default = number of processors that the machine has')
     args = parser.parse_args()
+
+    # TODO: Not getting 100% total sum of acgt
+    # TODO: Add --summarise
 
     # Create an index if it doesn't already exist
     if (args.index is None) and (not os.path.isfile(args.bam + '.bai')):
@@ -85,14 +92,14 @@ def main():
     region_size = 1000
     regions = [(i, i + region_size) for i in range(0, last_pos, region_size)]
 
-    with concurrent.futures.ProcessPoolExecutor(max_workers=args.max_workers) as executor:
+    with concurrent.futures.ProcessPoolExecutor(max_workers=args.max_processes) as executor:
         if not args.totals:
             # Calculate base percentages at each position
-            print('\t'.join(['pos', '%a', '%c', '%g', '%t', '%acgt']))
-            results = {start : executor.submit(calculate_region_percentages, args.bam, args.ref, args.dp, start, end) for start, end in regions}
+            print('\t'.join(['pos', 'pc_a', 'pc_c', 'pc_g', 'pc_t', 'pc_acgt', 'entropy']))
+            results = {start : executor.submit(calculate_region_percentages, args.bam, args.ref, args.decimal_places, start, end) for start, end in regions}
         else:
             # Calculate base totals at each position
-            print('\t'.join(['pos', '#a', '#c', '#g', '#t', '#acgt']))
+            print('\t'.join(['pos', 'num_a', 'num_c', 'num_g', 'num_t', 'num_acgt']))
             results = {start : executor.submit(calculate_region_totals, args.bam, args.ref, start, end) for start, end in regions}
 
     # Print results in the correct order
