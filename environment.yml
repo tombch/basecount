@@ -1,0 +1,7 @@
+name: basechart
+channels:
+  - defaults
+dependencies:
+  - pip
+  - pip:
+    - pysam
