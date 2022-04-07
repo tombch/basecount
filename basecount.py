@@ -8,8 +8,9 @@ import concurrent.futures
 def calculate_region(bam, ref, start, end):
     region = []
     samfile = pysam.AlignmentFile(bam, "rb") # type: ignore
+    normalising_factor = (1 / math.log2(5)) # 5 is from the numebr of bases + 1 (for skips/deletions)
     for pileupcolumn in samfile.pileup(ref, start, end, min_base_quality=0):
-        reference_pos = pileupcolumn.reference_pos
+        reference_pos = pileupcolumn.reference_pos # type: ignore
         if start <= reference_pos < end:
             base_count = {
                 'A' : 0,
@@ -18,7 +19,7 @@ def calculate_region(bam, ref, start, end):
                 'T' : 0,
                 'SD' : 0, # skips and deletions
             }
-            for pileupread in pileupcolumn.pileups:
+            for pileupread in pileupcolumn.pileups: # type: ignore
                 if not pileupread.is_del and not pileupread.is_refskip:
                     # TODO: Could there be non-ACGT ?
                     base_count[pileupread.alignment.query_sequence[pileupread.query_position].upper()] += 1
@@ -26,10 +27,10 @@ def calculate_region(bam, ref, start, end):
                     base_count['SD'] += 1
 
             row = []
-            coverage = pileupcolumn.nsegments
+            coverage = pileupcolumn.nsegments # type: ignore
             base_probabilities = [count / coverage for count in base_count.values()]
             base_percentages = [100 * probability for probability in base_probabilities]
-            entropy = (1 / math.log2(len(base_probabilities))) * sum([-(x * math.log2(x)) if x != 0 else 0 for x in base_probabilities])
+            entropy = normalising_factor * sum([-(x * math.log2(x)) if x != 0 else 0 for x in base_probabilities])
             entropy_per_read = entropy / coverage
 
             row.append(reference_pos)
@@ -38,7 +39,6 @@ def calculate_region(bam, ref, start, end):
             row.extend(base_percentages)
             row.append(entropy)
             row.append(entropy_per_read)
-            # row.append(100 * sum(base_count.values()) / coverage) # <- should now be 100%
             region.append(row)
 
     samfile.close()
@@ -62,7 +62,7 @@ def main():
     # Determine number of bases covered
     # TODO: does pysam have a better way?
     samfile = pysam.AlignmentFile(args.bam, "rb") # type: ignore
-    positions = [pileupcolumn.pos for pileupcolumn in samfile.pileup(args.ref, min_base_quality=0)]
+    positions = [pileupcolumn.reference_pos for pileupcolumn in samfile.pileup(args.ref, min_base_quality=0)] # type: ignore
     first_pos = positions[0]
     last_pos = positions[-1]
     samfile.close()
