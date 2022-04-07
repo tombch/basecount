@@ -5,7 +5,7 @@ import argparse
 import concurrent.futures
 
 
-def calculate_region(bam, ref, dp, start, end):
+def calculate_region(bam, ref, start, end):
     region = []
     samfile = pysam.AlignmentFile(bam, "rb") # type: ignore
     for pileupcolumn in samfile.pileup(ref, start, end, min_base_quality=0):
@@ -28,16 +28,17 @@ def calculate_region(bam, ref, dp, start, end):
             row = []
             coverage = pileupcolumn.nsegments
             base_probabilities = [count / coverage for count in base_count.values()]
-            base_percentages = [round(100 * probability, dp) for probability in base_probabilities]
-            entropy = round((1 / math.log2(len(base_probabilities))) * sum([-(x * math.log2(x)) if x != 0 else 0 for x in base_probabilities]), dp)
+            base_percentages = [100 * probability for probability in base_probabilities]
+            entropy = (1 / math.log2(len(base_probabilities))) * sum([-(x * math.log2(x)) if x != 0 else 0 for x in base_probabilities])
+            entropy_per_read = entropy / coverage
 
             row.append(reference_pos)
             row.append(coverage)
-            row.extend([count for count in base_count.values()])
-            row.extend([x for x in base_percentages])
+            row.extend(base_count.values())
+            row.extend(base_percentages)
             row.append(entropy)
-            # row.append(round(100 * sum(base_count.values()) / coverage, dp)) # <- should now be 100%
-
+            row.append(entropy_per_read)
+            # row.append(100 * sum(base_count.values()) / coverage) # <- should now be 100%
             region.append(row)
 
     samfile.close()
@@ -79,16 +80,16 @@ def main():
     
     # Generate results
     with concurrent.futures.ProcessPoolExecutor(max_workers=args.max_processes) as executor:
-        results = {start : executor.submit(calculate_region, args.bam, args.ref, args.decimal_places, start, end) for start, end in regions}
+        results = {start : executor.submit(calculate_region, args.bam, args.ref, start, end) for start, end in regions}
 
-    columns = ['reference_pos', 'num_reads', 'num_a', 'num_c', 'num_g', 'num_t', 'num_skip_del','pc_a', 'pc_c', 'pc_g', 'pc_t', 'pc_skip_del', 'entropy']
-    summary_columns = ['ref_name', 'first_ref_pos', 'last_ref_pos', 'avg_num_reads', 'avg_num_skip_del', 'avg_pc_skip_del', 'avg_entropy']
+    columns = ['reference_pos', 'num_reads', 'num_a', 'num_c', 'num_g', 'num_t', 'num_skip_del','pc_a', 'pc_c', 'pc_g', 'pc_t', 'pc_skip_del', 'entropy', 'entropy_per_read']
+    summary_columns = ['ref_name', 'first_ref_pos', 'last_ref_pos', 'avg_num_reads', 'avg_num_skip_del', 'avg_pc_skip_del', 'avg_entropy', 'avg_entropy_per_read']
 
     if args.summarise is None:
         # Print all results (in the correct order)
         print('\t'.join(columns))
         for start, _ in regions:
-            print('\n'.join(['\t'.join([str(x) for x in result]) for result in results[start].result()]))
+            print('\n'.join(['\t'.join([str(round(x, args.decimal_places)) for x in result]) for result in results[start].result()]))
     else:
         # Summarise results
         # TODO: Averages currently taken over the number of positions covered by reads, NOT the length of the reference
@@ -96,6 +97,7 @@ def main():
         skips_deletions_column = columns.index('num_skip_del')
         percentages_skips_deletions_column = columns.index('pc_skip_del')
         entropies_column = columns.index('entropy')
+        entropy_per_read_column = columns.index('entropy_per_read')
         
         num_reads = [result[num_reads_column] for start, _ in regions for result in results[start].result()]
         avg_num_reads = round(sum(num_reads) / len(num_reads), args.decimal_places)
@@ -109,7 +111,10 @@ def main():
         entropies = [result[entropies_column] for start, _ in regions for result in results[start].result()]
         avg_entropies = round(sum(entropies) / len(entropies), args.decimal_places)
 
-        summary_stats = [args.ref, first_pos, last_pos, avg_num_reads, avg_skips_deletions, avg_pc_skips_deletions, avg_entropies]
+        entropy_per_read = [result[entropy_per_read_column] for start, _ in regions for result in results[start].result()]
+        avg_entropy_per_read = round(sum(entropy_per_read) / len(entropy_per_read), args.decimal_places)
+
+        summary_stats = [args.ref, first_pos, last_pos, avg_num_reads, avg_skips_deletions, avg_pc_skips_deletions, avg_entropies, avg_entropy_per_read]
 
         print('\t'.join(summary_columns))
         print('\t'.join([str(x) for x in summary_stats]))
