@@ -1,4 +1,4 @@
-name: basechart
+name: basecount
 channels:
   - defaults
 dependencies:
