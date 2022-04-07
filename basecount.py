@@ -8,7 +8,7 @@ import concurrent.futures
 def calculate_region(bam, ref, start, end):
     region = []
     samfile = pysam.AlignmentFile(bam, "rb") # type: ignore
-    normalising_factor = (1 / math.log2(5)) # 5 is from the numebr of bases + 1 (for skips/deletions)
+    normalising_factor = (1 / math.log2(5)) # 5 is from the number of bases + 1 (for skips/deletions)
     for pileupcolumn in samfile.pileup(ref, start, end, min_base_quality=0):
         reference_pos = pileupcolumn.reference_pos # type: ignore
         if start <= reference_pos < end:
