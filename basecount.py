@@ -196,9 +196,9 @@ def main():
     summary_columns = [
         'ref_length',
         'num_reads',
-        'avg_coverage', 
+        'avg_coverage',
+        'pc_ref_coverage',
         'num_pos_no_coverage', 
-        'pc_pos_no_coverage', 
         'avg_num_deletions', 
         'avg_pc_deletions', 
         'avg_entropy', 
@@ -228,7 +228,7 @@ def main():
             ref_length = len(ref_data)
 
             num_no_coverage = len([row[num_reads_column] for row in ref_data if row[num_reads_column] == 0])
-            pc_no_coverage = 100 * num_no_coverage / ref_length
+            pc_coverage = 100 - (100 * num_no_coverage / ref_length)
 
             num_reads = [row[num_reads_column] for row in ref_data]
             avg_coverage = np.mean(num_reads)
@@ -287,8 +287,8 @@ def main():
                     ref_length, 
                     total_reads,
                     avg_coverage, 
+                    pc_coverage, 
                     num_no_coverage, 
-                    pc_no_coverage, 
                     avg_num_deletions, 
                     avg_pc_deletions, 
                     avg_entropies, 

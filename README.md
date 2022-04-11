@@ -64,8 +64,8 @@ ref_name                             XXXXXXXXXX
 ref_length                           29903
 num_reads                            123901
 avg_coverage                         1649.805
+pc_ref_coverage                      99.057
 num_pos_no_coverage                  282
-pc_pos_no_coverage                   0.943
 avg_num_deletions                    34.822
 avg_pc_deletions                     2.011
 avg_entropy                          0.116
@@ -87,8 +87,8 @@ ref_name                             XXXXXXXXXX
 ref_length                           29903
 num_reads                            123901
 avg_coverage                         1649.805
+pc_ref_coverage                      99.057
 num_pos_no_coverage                  282
-pc_pos_no_coverage                   0.943
 avg_num_deletions                    34.822
 avg_pc_deletions                     2.011
 avg_entropy                          0.116
