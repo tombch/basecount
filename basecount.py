@@ -29,10 +29,10 @@ def load_scheme(bed, clip=True):
                     tiles_dict[tile]["inside_start"] = end
 
                 if start < tiles_dict[tile]["start"]:
-                    # push the window region to the leftmost left position
+                    # Push the window region to the leftmost left position
                     tiles_dict[tile]["start"] = start
                 if end > tiles_dict[tile]["inside_start"]:
-                    # open the start of the inner window to the rightmost left position
+                    # Open the start of the inner window to the rightmost left position
                     tiles_dict[tile]["inside_start"] = end
 
             elif "RIGHT" in side.upper():
@@ -41,10 +41,10 @@ def load_scheme(bed, clip=True):
                     tiles_dict[tile]["inside_end"] = start
 
                 if end > tiles_dict[tile]["end"]:
-                    # stretch the window out to the rightmost right position
+                    # Stretch the window out to the rightmost right position
                     tiles_dict[tile]["end"] = end
                 if start < tiles_dict[tile]["inside_end"]:
-                    # close the end of the inner window to the leftmost right position
+                    # Close the end of the inner window to the leftmost right position
                     tiles_dict[tile]["inside_end"] = start
         
         tiles_list = []
@@ -59,20 +59,18 @@ def load_scheme(bed, clip=True):
                 tiles_list.append(tile_tup)
                 tiles_seen.add(tile)
 
-        tiles_list = sorted(tiles_list, key=lambda x: int(x[1])) # sort by tile number
+        tiles_list = sorted(tiles_list, key=lambda x: int(x[1])) # Sort by tile number
         if clip: # Default
-            # iterate through tiles and clip
+            # Iterate through tiles and clip
             new_tiles = []
             for tile_index, tile_tuple in enumerate(tiles_list):
-                tile_dict = dict(tile_tuple[2]) # copy the dict god this is gross stuff
+                tile_dict = dict(tile_tuple[2])
 
-                # Clip the start of this window to the end of the last window
-                # (if there is a last window)
+                # Clip the start of this window to the end of the last window, if there is a last window
                 if tile_index > 0:
                     tile_dict["inside_start"] = tiles_list[tile_index - 1][2]["end"]
 
-                # Clip the end of this window to the start of the next window
-                # (if there is a next window)
+                # Clip the end of this window to the start of the next window, if there is a next window
                 if tile_index < len(tiles_list) - 1:
                     tile_dict["inside_end"] = tiles_list[tile_index + 1][2]["start"]
 
@@ -83,77 +81,76 @@ def load_scheme(bed, clip=True):
     return new_tiles
 
 
-def calculate(bam, references=None):
+def compute(bam, references=None):
     data = {}
     normalising_factor = (1 / math.log2(5)) # Normalises maximum entropy to 1
     invalid_base_percentages = [-1, -1, -1, -1, -1] # Percentage values where coverage is zero
 
     samfile = pysam.AlignmentFile(bam, "rb")
 
+    # If no references are specified, calculate stats for every contig in the BAM
     if references is None:
         references = samfile.references
 
     for i, ref in enumerate(references):
         ref_data = []
-
-        ref_len = samfile.lengths[i]
-        reads = [(read.reference_start, read.cigartuples, read.query_alignment_sequence) for read in samfile.fetch(ref)]
-
-        num_reads = len(reads)
-
-        base_counts = [{'A' : 0, 'C' : 0, 'G' : 0, 'T' : 0, 'DEL' : 0} for _ in range(ref_len)]
-        operations = {0, 1, 2} # Codes for match, insertion and deletion
+        num_reads = 0
+        reads = samfile.fetch(ref)
+        base_counts = [{'A' : 0, 'C' : 0, 'G' : 0, 'T' : 0, 'DS' : 0} for _ in range(samfile.lengths[i])]
 
         for read in reads:
-            start, c_tuples, seq = read
-            # Filter out all operations except match, insertion, deletion
-            # TODO: keep it simple for now, but this probably has issues
-            c_tuples = [c_tuple for c_tuple in c_tuples if c_tuple[0] in operations] # type: ignore
+            # If current read is unmapped, skip to the next read
+            # TODO: unsure if this check is necessary
+            # if read.is_unmapped:
+            #     continue
 
-            ref_pos = start
+            # Index of where the read starts in the reference
+            ref_pos = read.reference_start
+
+            # Index for current position in read
             seq_pos = 0
-            for operation, length in c_tuples:
-                # Matching
-                if operation == 0:
-                    for r_p, s_p in zip(range(ref_pos, ref_pos + length), range(seq_pos, seq_pos + length)):
-                        base_counts[r_p][seq[s_p]] += 1 # type: ignore
-                    seq_pos += length
-                    ref_pos += length
-                # Insertion in read
-                elif operation == 1:
-                    seq_pos += length
-                # Deletion in read
-                else:
-                    for r_p in range(ref_pos, ref_pos + length):
-                        base_counts[r_p]['DEL'] += 1 # type: ignore
-                    ref_pos += length
+            
+            seq = read.query_alignment_sequence
+            ctuples = read.cigartuples
 
-        # attempted vectorising
-        # base_count_vector = np.array([list(b_c.values()) for b_c in base_counts])
-        # coverage_vector = np.sum(base_count_vector, axis=1)
-        # base_probabilities_vector = base_count_vector / coverage_vector[:, None]
-        # base_percentages_vector = 100 * base_probabilities_vector
-        # base_percentages_vector[np.isnan(base_percentages_vector)] = -1
+            if (seq is not None) and (ctuples is not None):
+                num_reads += 1
 
+                for operation, length in ctuples:
+                    # Matching
+                    if operation == 0:
+                        for r_p, s_p in zip(range(ref_pos, ref_pos + length), range(seq_pos, seq_pos + length)):
+                            base_counts[r_p][seq[s_p]] += 1
+                        seq_pos += length
+                        ref_pos += length
+            
+                    # Insertion in read
+                    elif operation == 1:
+                        seq_pos += length
+            
+                    # Deletion/skip in read
+                    elif operation == 2 or operation == 3:
+                        for r_p in range(ref_pos, ref_pos + length):
+                            base_counts[r_p]['DS'] += 1
+                        ref_pos += length
+
+        # Generate per-position statistics
         for reference_pos, b_c in enumerate(base_counts):
             row = []
-            coverage = sum(b_c.values()) # type: ignore
+            coverage = sum(b_c.values())
             if coverage != 0:
                 base_probabilities = [count / coverage for count in b_c.values()]
                 base_percentages = [100 * probability for probability in base_probabilities]
                 entropy = normalising_factor * sum([-(x * math.log2(x)) if x != 0 else 0 for x in base_probabilities])
-                entropy_per_read = entropy / coverage
             else:
                 base_percentages = invalid_base_percentages
-                entropy = 1
-                entropy_per_read = 1
+                entropy = 1 # TODO: is this an appropriate value
 
-            row.append(reference_pos)
+            row.append(reference_pos + 1) # Output one-based coordinates
             row.append(coverage)
             row.extend(b_c.values())
             row.extend(base_percentages)
             row.append(entropy)
-            row.append(entropy_per_read)
             ref_data.append(row)
         data[ref] = ref_data, num_reads
 
@@ -164,19 +161,26 @@ def calculate(bam, references=None):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('bam', help='path to BAM file')
-    parser.add_argument('--references', default=None, action='append', help='reference name(s)')
+    parser.add_argument('--references', default=None, nargs='+', action='append', help='reference name(s)')
     parser.add_argument('--bed', default=None, help='path to BED file')
     parser.add_argument('--summarise', default=None, action='store_true', help='display summarising stats instead of per-position stats')
     parser.add_argument('--decimal-places', default=3, type=int, help='default = 3')
     args = parser.parse_args()
+
+    # Move input references into single list, or set as None if none were given
+    if args.references is not None:
+        references = list({ref for ref_list in args.references for ref in ref_list})
+    else:
+        references = None
 
     # Create an index (if it doesn't already exist) in the same dir as the BAM
     if not os.path.isfile(args.bam + '.bai'):
         pysam.index(args.bam) # type: ignore
 
     # Generate data
-    data = calculate(args.bam, args.references)
+    data = compute(args.bam, references)
 
+    # Output columns
     columns = [
         'reference_position', 
         'num_reads', 
@@ -184,29 +188,13 @@ def main():
         'num_c', 
         'num_g', 
         'num_t', 
-        'num_deletions',
+        'num_deletions_skips',
         'pc_a', 
         'pc_c', 
         'pc_g', 
         'pc_t', 
-        'pc_deletions', 
+        'pc_deletions_skips', 
         'entropy', 
-        'entropy_per_read'
-    ]
-    summary_columns = [
-        'ref_length',
-        'num_reads',
-        'avg_coverage',
-        'pc_ref_coverage',
-        'num_pos_no_coverage', 
-        'avg_num_deletions', 
-        'avg_pc_deletions', 
-        'avg_entropy', 
-        'avg_entropy_per_read', 
-        'mean_entropy_tile_vector',
-        'median_entropy_tile_vector',
-        'mean_entropy_per_read_tile_vector',
-        'median_entropy_per_read_tile_vector'
     ]
 
     if args.summarise is None:
@@ -218,32 +206,27 @@ def main():
     else:
         # Generate summary statistics
         num_reads_column = columns.index('num_reads')
-        num_deletions_column = columns.index('num_deletions')
-        percentages_deletions_column = columns.index('pc_deletions')
+        num_deletions_column = columns.index('num_deletions_skips')
+        percentages_deletions_column = columns.index('pc_deletions_skips')
         entropies_column = columns.index('entropy')
-        entropy_per_read_column = columns.index('entropy_per_read')
 
         for ref, (ref_data, total_reads) in data.items():
-
             ref_length = len(ref_data)
-
-            num_no_coverage = len([row[num_reads_column] for row in ref_data if row[num_reads_column] == 0])
-            pc_coverage = 100 - (100 * num_no_coverage / ref_length)
 
             num_reads = [row[num_reads_column] for row in ref_data]
             avg_coverage = np.mean(num_reads)
 
-            num_deletions = [row[num_deletions_column] for row in ref_data]
-            avg_num_deletions = np.mean(num_deletions)
+            num_no_coverage = len([row[num_reads_column] for row in ref_data if row[num_reads_column] == 0])
+            pc_coverage = 100 - (100 * num_no_coverage / ref_length)
+
+            num_deletions_skips = [row[num_deletions_column] for row in ref_data]
+            avg_num_deletions_skips = np.mean(num_deletions_skips)
             
-            pc_deletions = [row[percentages_deletions_column] for row in ref_data]
-            avg_pc_deletions = np.mean(pc_deletions)
+            pc_deletions_skips = [row[percentages_deletions_column] for row in ref_data]
+            avg_pc_deletions_skips = np.mean(pc_deletions_skips)
 
             entropies = [row[entropies_column] for row in ref_data]
             avg_entropies = np.mean(entropies)
-
-            entropy_per_read = [row[entropy_per_read_column] for row in ref_data]
-            avg_entropy_per_read = np.mean(entropy_per_read)  
             
             if args.bed is not None:
                 scheme = load_scheme(args.bed)
@@ -254,18 +237,15 @@ def main():
                 tile_starts = []
                 tile_ends = []
 
+            # Create tile vectors
             entropy_data = [[] for _ in scheme]
-            entropy_per_read_data = [[] for _ in scheme]
             mean_entropy_vector = []
             median_entropy_vector = []
-            mean_entropy_per_read_vector = []
-            median_entropy_per_read_vector = []
 
             for i, (start, end) in enumerate(zip(tile_starts, tile_ends)):
-                for j, (entropy, entropy_p_r) in enumerate(zip(entropies, entropy_per_read)):
+                for j, entropy in enumerate(entropies):
                     if start <= j <= end:
                         entropy_data[i].append(entropy)
-                        entropy_per_read_data[i].append(entropy_p_r)
                 
                 if entropy_data[i]:
                     mean_entropy_vector.append(np.mean(entropy_data[i]))
@@ -274,36 +254,23 @@ def main():
                     mean_entropy_vector.append(-1)
                     median_entropy_vector.append(-1)
                 
-                if entropy_per_read_data[i]:
-                    mean_entropy_per_read_vector.append(np.mean(entropy_per_read_data[i]))
-                    median_entropy_per_read_vector.append(np.median(entropy_per_read_data[i]))
-                else:
-                    mean_entropy_per_read_vector.append(-1)
-                    median_entropy_per_read_vector.append(-1)
-            
-            # Format and display summary statistics
-            summary_stats = [ 
-                str(round(x, args.decimal_places)) for x in [
-                    ref_length, 
-                    total_reads,
-                    avg_coverage, 
-                    pc_coverage, 
-                    num_no_coverage, 
-                    avg_num_deletions, 
-                    avg_pc_deletions, 
-                    avg_entropies, 
-                    avg_entropy_per_read
-                ]
-            ]
+            # Format summary statistics
+            summary_stats = {
+                'ref_name' : ref,
+                'ref_length' : round(ref_length, args.decimal_places),
+                'num_reads' : round(total_reads, args.decimal_places),
+                'avg_coverage' : round(avg_coverage, args.decimal_places),
+                'pc_ref_coverage' : round(pc_coverage, args.decimal_places),
+                'num_pos_no_coverage' : round(num_no_coverage, args.decimal_places), 
+                'avg_num_deletions_skips' : round(avg_num_deletions_skips, args.decimal_places), 
+                'avg_pc_deletions_skips' : round(avg_pc_deletions_skips, args.decimal_places), 
+                'avg_entropy' : round(avg_entropies, args.decimal_places), 
+                'mean_entropy_tile_vector' : ', '.join([str(round(x, args.decimal_places)) for x in mean_entropy_vector]) if mean_entropy_vector else '-',
+                'median_entropy_tile_vector' : ', '.join([str(round(x, args.decimal_places)) for x in median_entropy_vector]) if median_entropy_vector else '-',
+            }
 
-            for vector in [mean_entropy_vector, median_entropy_vector, mean_entropy_per_read_vector, median_entropy_per_read_vector]:
-                if vector:
-                    summary_stats.append(', '.join([str(round(x, args.decimal_places)) for x in vector]))
-                else:
-                    summary_stats.append('-')
-
-            print('ref_name', ref, sep='\t')
-            for name, val in zip(summary_columns, summary_stats):
+            # Display summary statistics
+            for name, val in summary_stats.items():
                 print(name, val, sep='\t')
 
 
