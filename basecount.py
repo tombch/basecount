@@ -88,52 +88,56 @@ def compute(bam, references=None):
 
     samfile = pysam.AlignmentFile(bam, "rb")
 
-    # If no references are specified, calculate stats for every contig in the BAM
+    # If no references are specified, calculate stats for every contig
     if references is None:
         references = samfile.references
 
-    for i, ref in enumerate(references):
+    for ref in references:
         ref_data = []
         num_reads = 0
-        reads = samfile.fetch(ref)
-        base_counts = [{'A' : 0, 'C' : 0, 'G' : 0, 'T' : 0, 'DS' : 0} for _ in range(samfile.lengths[i])]
+        reads = samfile.fetch(ref) # Iterator through all mapped reads in the contig
+        base_counts = [{'A' : 0, 'C' : 0, 'G' : 0, 'T' : 0, 'DS' : 0} for _ in range(samfile.lengths[samfile.references.index(ref)])]
 
         for read in reads:
-            # If current read is unmapped, skip to the next read
-            # TODO: unsure if this check is necessary
-            # if read.is_unmapped:
-            #     continue
-
             # Index of where the read starts in the reference
             ref_pos = read.reference_start
-
-            # Index for current position in read
+            # Index for position in (the aligned portion of) the current read
             seq_pos = 0
-            
+            # The aligned portion of the read (soft clipped bases excluded)
             seq = read.query_alignment_sequence
+            # Sequence of operations describing how the read is aligned to the reference
+            # Each tuple is of the form (operation, length of operation)
             ctuples = read.cigartuples
 
             if (seq is not None) and (ctuples is not None):
                 num_reads += 1
 
                 for operation, length in ctuples:
-                    # Matching
-                    if operation == 0:
+                    # 0 : Matched (equal or not)
+                    # 7 : All bases equal to ref
+                    # 8 : All bases not equal to ref
+                    if operation == 0 or operation == 7 or operation == 8:
                         for r_p, s_p in zip(range(ref_pos, ref_pos + length), range(seq_pos, seq_pos + length)):
                             base_counts[r_p][seq[s_p]] += 1
                         seq_pos += length
                         ref_pos += length
             
-                    # Insertion in read
+                    # 1 : Insertion in read
                     elif operation == 1:
                         seq_pos += length
             
-                    # Deletion/skip in read
+                    # 2 : Deletion in read 
+                    # 3 : Skip in read
                     elif operation == 2 or operation == 3:
                         for r_p in range(ref_pos, ref_pos + length):
                             base_counts[r_p]['DS'] += 1
                         ref_pos += length
-
+                    
+                    # Operations 4, 5 and 6 are soft clipping, hard clipping and padding respectively
+                    # None of these affect the read.query_alignment_sequence                    
+                    # Operation 9 is the 'back' operation which seems to be basically unheard of
+                    # TODO: can it be ignored?
+                    
         # Generate per-position statistics
         for reference_pos, b_c in enumerate(base_counts):
             row = []
@@ -144,7 +148,7 @@ def compute(bam, references=None):
                 entropy = normalising_factor * sum([-(x * math.log2(x)) if x != 0 else 0 for x in base_probabilities])
             else:
                 base_percentages = invalid_base_percentages
-                entropy = 1 # TODO: is this an appropriate value
+                entropy = 1 # TODO: is this an appropriate value?
 
             row.append(reference_pos + 1) # Output one-based coordinates
             row.append(coverage)
@@ -162,8 +166,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('bam', help='path to BAM file')
     parser.add_argument('--references', default=None, nargs='+', action='append', help='reference name(s)')
-    parser.add_argument('--bed', default=None, help='path to BED file')
-    parser.add_argument('--summarise', default=None, action='store_true', help='display summarising stats instead of per-position stats')
+    parser.add_argument('--bed', default=None, nargs='+', action='append', help='path to BED file')
+    parser.add_argument('--summarise', default=False, action='store_true', help='display summarising stats instead of per-position stats')
     parser.add_argument('--decimal-places', default=3, type=int, help='default = 3')
     args = parser.parse_args()
 
@@ -172,6 +176,16 @@ def main():
         references = list({ref for ref_list in args.references for ref in ref_list})
     else:
         references = None
+    
+    # Move bed files into single list, check only one was given
+    if args.bed is not None:
+        bed_list = list({bed for bed_list in args.bed for bed in bed_list})
+        if len(bed_list) > 1:
+            raise Exception('Only one BED file can be provided')
+        else:
+            bed = bed_list[0]
+    else:
+        bed = None
 
     # Create an index (if it doesn't already exist) in the same dir as the BAM
     if not os.path.isfile(args.bam + '.bai'):
@@ -197,7 +211,7 @@ def main():
         'entropy', 
     ]
 
-    if args.summarise is None:
+    if not args.summarise:
         # Print all results (in the correct order)
         print('reference_name', '\t'.join(columns), sep='\t')
         for ref, (ref_data, _) in data.items():
@@ -228,8 +242,8 @@ def main():
             entropies = [row[entropies_column] for row in ref_data]
             avg_entropies = np.mean(entropies)
             
-            if args.bed is not None:
-                scheme = load_scheme(args.bed)
+            if bed is not None:
+                scheme = load_scheme(bed)
                 tile_starts = [tile[2]["inside_start"] for tile in scheme]
                 tile_ends = [tile[2]["inside_end"] for tile in scheme]
             else:
