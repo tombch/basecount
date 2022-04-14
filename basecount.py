@@ -96,7 +96,7 @@ def compute(bam, references=None):
         ref_data = []
         num_reads = 0
         reads = samfile.fetch(ref) # Iterator through all mapped reads in the contig
-        base_counts = [{'A' : 0, 'C' : 0, 'G' : 0, 'T' : 0, 'DS' : 0} for _ in range(samfile.lengths[samfile.references.index(ref)])]
+        base_counts = [{'A' : 0, 'C' : 0, 'G' : 0, 'T' : 0, 'DS' : 0, 'N' : 0} for _ in range(samfile.lengths[samfile.references.index(ref)])]
 
         for read in reads:
             # Index of where the read starts in the reference
@@ -137,9 +137,13 @@ def compute(bam, references=None):
                     # None of these affect the read.query_alignment_sequence                    
                     # Operation 9 is the 'back' operation which seems to be basically unheard of
                     # TODO: can it be ignored?
-                    
+
         # Generate per-position statistics
         for reference_pos, b_c in enumerate(base_counts):
+            
+            # TODO: Is it best to ignore these completely?
+            b_c.pop('N')
+            
             row = []
             coverage = sum(b_c.values())
             if coverage != 0:
