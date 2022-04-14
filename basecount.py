@@ -168,7 +168,7 @@ def main():
     parser.add_argument('--references', default=None, nargs='+', action='append', help='reference name(s)')
     parser.add_argument('--bed', default=None, nargs='+', action='append', help='path to BED file')
     parser.add_argument('--summarise', default=False, action='store_true', help='display summarising stats instead of per-position stats')
-    parser.add_argument('--decimal-places', default=3, type=int, help='default = 3')
+    parser.add_argument('--dp', default=None, nargs='+', action='append', help='default = 3')
     args = parser.parse_args()
 
     # Move input references into single list, or set as None if none were given
@@ -186,6 +186,16 @@ def main():
             bed = bed_list[0]
     else:
         bed = None
+    
+    # Handle dp argument
+    if args.dp is None:
+        dp = 3
+    else:
+        dp_list = list({dp for dp_list in args.dp for dp in dp_list})
+        if len(dp_list) > 1:
+            raise Exception('Only one dp value can be provided')
+        else:
+            dp = int(dp_list[0])
 
     # Create an index (if it doesn't already exist) in the same dir as the BAM
     if not os.path.isfile(args.bam + '.bai'):
@@ -216,7 +226,7 @@ def main():
         print('reference_name', '\t'.join(columns), sep='\t')
         for ref, (ref_data, _) in data.items():
             for i, row in enumerate(ref_data):
-                print(ref, '\t'.join([str(round(x, args.decimal_places)) for x in row]), sep='\t')
+                print(ref, '\t'.join([str(round(x, dp)) for x in row]), sep='\t')
     else:
         # Generate summary statistics
         num_reads_column = columns.index('num_reads')
@@ -271,16 +281,16 @@ def main():
             # Format summary statistics
             summary_stats = {
                 'ref_name' : ref,
-                'ref_length' : round(ref_length, args.decimal_places),
-                'num_reads' : round(total_reads, args.decimal_places),
-                'avg_coverage' : round(avg_coverage, args.decimal_places),
-                'pc_ref_coverage' : round(pc_coverage, args.decimal_places),
-                'num_pos_no_coverage' : round(num_no_coverage, args.decimal_places), 
-                'avg_num_deletions_skips' : round(avg_num_deletions_skips, args.decimal_places), 
-                'avg_pc_deletions_skips' : round(avg_pc_deletions_skips, args.decimal_places), 
-                'avg_entropy' : round(avg_entropies, args.decimal_places), 
-                'mean_entropy_tile_vector' : ', '.join([str(round(x, args.decimal_places)) for x in mean_entropy_vector]) if mean_entropy_vector else '-',
-                'median_entropy_tile_vector' : ', '.join([str(round(x, args.decimal_places)) for x in median_entropy_vector]) if median_entropy_vector else '-',
+                'ref_length' : round(ref_length, dp),
+                'num_reads' : round(total_reads, dp),
+                'avg_coverage' : round(avg_coverage, dp),
+                'pc_ref_coverage' : round(pc_coverage, dp),
+                'num_pos_no_coverage' : round(num_no_coverage, dp), 
+                'avg_num_deletions_skips' : round(avg_num_deletions_skips, dp), 
+                'avg_pc_deletions_skips' : round(avg_pc_deletions_skips, dp), 
+                'avg_entropy' : round(avg_entropies, dp), 
+                'mean_entropy_tile_vector' : ', '.join([str(round(x, dp)) for x in mean_entropy_vector]) if mean_entropy_vector else '-',
+                'median_entropy_tile_vector' : ', '.join([str(round(x, dp)) for x in median_entropy_vector]) if median_entropy_vector else '-',
             }
 
             # Display summary statistics
