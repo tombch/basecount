@@ -3,6 +3,7 @@ import math
 import pysam
 import argparse
 import numpy as np
+import basecomp
 
 
 # Written by Sam Nicholls as part of swell
@@ -81,73 +82,43 @@ def load_scheme(bed, clip=True):
     return new_tiles
 
 
-def compute(bam, references=None):
-    data = {}
-    normalising_factor = (1 / math.log2(5)) # Normalises maximum entropy to 1
-    invalid_base_percentages = [-1, -1, -1, -1, -1] # Percentage values where coverage is zero
-
+def get_data(bam, references=None):    
     samfile = pysam.AlignmentFile(bam, "rb")
 
     # If no references are specified, calculate stats for every contig
     if references is None:
         references = samfile.references
 
+    data = {}
+    normalising_factor = 1 / math.log2(5) # Normalises maximum entropy to 1
+    invalid_base_percentages = [-1, -1, -1, -1, -1, -1] # Percentage values where coverage is zero
+
     for ref in references:
-        ref_data = []
-        num_reads = 0
-        reads = samfile.fetch(ref) # Iterator through all mapped reads in the contig
-        base_counts = [{'A' : 0, 'C' : 0, 'G' : 0, 'T' : 0, 'DS' : 0, 'N' : 0} for _ in range(samfile.lengths[samfile.references.index(ref)])]
+        # Prepare read data
+        ref_len = samfile.lengths[samfile.references.index(ref)]
+        read_data = samfile.fetch(ref) # Iterator through all mapped reads in the contig
+        reads = []
+        starts = []
+        ctuples = []
+        for r_d in read_data:
+            reads.append(r_d.query_alignment_sequence)
+            starts.append(r_d.reference_start)
+            ctuples.append(r_d.cigartuples)
+        num_reads = len(reads)
 
-        for read in reads:
-            # Index of where the read starts in the reference
-            ref_pos = read.reference_start
-            # Index for position in (the aligned portion of) the current read
-            seq_pos = 0
-            # The aligned portion of the read (soft clipped bases excluded)
-            seq = read.query_alignment_sequence
-            # Sequence of operations describing how the read is aligned to the reference
-            # Each tuple is of the form (operation, length of operation)
-            ctuples = read.cigartuples
-
-            if (seq is not None) and (ctuples is not None):
-                num_reads += 1
-
-                for operation, length in ctuples:
-                    # 0 : Matched (equal or not)
-                    # 7 : All bases equal to ref
-                    # 8 : All bases not equal to ref
-                    if operation == 0 or operation == 7 or operation == 8:
-                        for r_p, s_p in zip(range(ref_pos, ref_pos + length), range(seq_pos, seq_pos + length)):
-                            base_counts[r_p][seq[s_p]] += 1
-                        seq_pos += length
-                        ref_pos += length
-            
-                    # 1 : Insertion in read
-                    elif operation == 1:
-                        seq_pos += length
-            
-                    # 2 : Deletion in read 
-                    # 3 : Skip in read
-                    elif operation == 2 or operation == 3:
-                        for r_p in range(ref_pos, ref_pos + length):
-                            base_counts[r_p]['DS'] += 1
-                        ref_pos += length
-                    
-                    # Operations 4, 5 and 6 are soft clipping, hard clipping and padding respectively
-                    # None of these affect the read.query_alignment_sequence                    
-                    # Operation 9 is the 'back' operation which seems to be basically unheard of
-                    # TODO: can it be ignored?
+        # Count the bases
+        base_counts = basecomp.compute(ref_len, reads, starts, ctuples)
 
         # Generate per-position statistics
+        ref_data = []
         for reference_pos, b_c in enumerate(base_counts):
-            
             # TODO: Is it best to ignore these completely?
-            b_c.pop('N')
+            # b_c.pop('N')
             
             row = []
-            coverage = sum(b_c.values())
+            coverage = sum(b_c)
             if coverage != 0:
-                base_probabilities = [count / coverage for count in b_c.values()]
+                base_probabilities = [count / coverage for count in b_c]
                 base_percentages = [100 * probability for probability in base_probabilities]
                 entropy = normalising_factor * sum([-(x * math.log2(x)) if x != 0 else 0 for x in base_probabilities])
             else:
@@ -156,7 +127,7 @@ def compute(bam, references=None):
 
             row.append(reference_pos + 1) # Output one-based coordinates
             row.append(coverage)
-            row.extend(b_c.values())
+            row.extend(b_c)
             row.extend(base_percentages)
             row.append(entropy)
             ref_data.append(row)
@@ -206,7 +177,7 @@ def main():
         pysam.index(args.bam) # type: ignore
 
     # Generate data
-    data = compute(args.bam, references)
+    data = get_data(args.bam, references)
 
     # Output columns
     columns = [
@@ -215,12 +186,14 @@ def main():
         'num_a', 
         'num_c', 
         'num_g', 
-        'num_t', 
+        'num_t',
+        'num_n',
         'num_deletions_skips',
         'pc_a', 
         'pc_c', 
-        'pc_g', 
-        'pc_t', 
+        'pc_g',
+        'pc_t',
+        'pc_n',
         'pc_deletions_skips', 
         'entropy', 
     ]
