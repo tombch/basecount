@@ -4,12 +4,9 @@
 #include <string>
 
 
-namespace py = pybind11;
-
-
 std::vector<std::vector<unsigned int>> compute(unsigned int refLen, std::vector<std::string> reads, std::vector<unsigned int> starts, std::vector<std::vector<std::pair<unsigned int, unsigned int>>> ctuples)
 {
-    // 2D matrix containing counts of A, C, G, T, N (Illumina unknown base) and DS (deletions+skips) present in the reads, for each position in the reference
+    // 2D array containing counts of A, C, G, T, N (Illumina unknown base) and DS (deletions+skips) present in the reads, for each position in the reference
     std::vector<std::vector<unsigned int>> baseCounts(refLen, std::vector<unsigned int>(6));
 
     // Iterate through the reads
@@ -30,7 +27,7 @@ std::vector<std::vector<unsigned int>> compute(unsigned int refLen, std::vector<
 
         for (auto &tup : tups)
         {
-            // Code designating the operation
+            // Integer designating the operation
             auto &operation = tup.first;
 
             // Length of operation
