@@ -5,6 +5,7 @@ import pysam
 import basecount
 
 
+# Put path to directory of BAM files here
 samples_dir = ""
 bams = glob.glob(f'{samples_dir}/*.bam')
 
@@ -42,7 +43,7 @@ def get_test_data(bam):
                 entropy = normalising_factor * sum([-(x * math.log2(x)) if x != 0 else 0 for x in base_probabilities])
             else:
                 base_percentages = invalid_base_percentages
-                entropy = 1 # TODO: is this an appropriate value?
+                entropy = 1
 
             row.append(reference_pos + 1) # Output one-based coordinates
             row.append(coverage)
@@ -62,6 +63,20 @@ def test_basecount():
         if not os.path.isfile(bam + '.bai'):
             pysam.index(bam) # type: ignore
         
-        data = basecount.get_data(bam)
+        basecount_data = basecount.get_data(bam)
         test_data = get_test_data(bam)
-        assert data == test_data
+
+        # Test for matching references
+        assert basecount_data.keys() == test_data.keys()
+
+        # Compare each reference
+        for ref in basecount_data.keys():
+            basecount_ref_data, basecount_ref_num_reads = basecount_data[ref]
+            test_ref_data, test_ref_num_reads = test_data[ref]
+
+            # Test for matching total of reads
+            assert basecount_ref_num_reads == test_ref_num_reads
+
+            # Iterate through rows, comparing each
+            for basecount_row, test_row in zip(basecount_ref_data, test_ref_data):
+                assert basecount_row == test_row
