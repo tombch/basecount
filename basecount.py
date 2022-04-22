@@ -182,7 +182,7 @@ def main():
     # Output columns
     columns = [
         'reference_position', 
-        'num_reads', 
+        'coverage', 
         'num_a', 
         'num_c', 
         'num_g', 
@@ -206,7 +206,7 @@ def main():
                 print(ref, '\t'.join([str(round(x, dp)) for x in row]), sep='\t')
     else:
         # Generate summary statistics
-        num_reads_column = columns.index('num_reads')
+        coverage_column = columns.index('coverage')
         num_deletions_column = columns.index('num_deletions_skips')
         percentages_deletions_column = columns.index('pc_deletions_skips')
         entropies_column = columns.index('entropy')
@@ -214,17 +214,12 @@ def main():
         for ref, (ref_data, total_reads) in data.items():
             ref_length = len(ref_data)
 
-            num_reads = [row[num_reads_column] for row in ref_data]
-            avg_coverage = np.mean(num_reads)
-
-            num_no_coverage = len([row[num_reads_column] for row in ref_data if row[num_reads_column] == 0])
+            num_no_coverage = len([row[coverage_column] for row in ref_data if row[coverage_column] == 0])
             pc_coverage = 100 - (100 * num_no_coverage / ref_length)
 
-            num_deletions_skips = [row[num_deletions_column] for row in ref_data]
-            avg_num_deletions_skips = np.mean(num_deletions_skips)
-            
-            pc_deletions_skips = [row[percentages_deletions_column] for row in ref_data]
-            avg_pc_deletions_skips = np.mean(pc_deletions_skips)
+            avg_coverage = np.mean([row[coverage_column] for row in ref_data])
+            avg_num_deletions_skips = np.mean([row[num_deletions_column] for row in ref_data])
+            avg_pc_deletions_skips = np.mean([row[percentages_deletions_column] for row in ref_data])
 
             entropies = [row[entropies_column] for row in ref_data]
             avg_entropies = np.mean(entropies)
@@ -234,9 +229,7 @@ def main():
                 tile_starts = [tile[2]["inside_start"] for tile in scheme]
                 tile_ends = [tile[2]["inside_end"] for tile in scheme]
             else:
-                scheme = []
-                tile_starts = []
-                tile_ends = []
+                scheme = tile_starts = tile_ends = []
 
             # Create tile vectors
             entropy_data = [[] for _ in scheme]
