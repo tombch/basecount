@@ -82,8 +82,8 @@ def load_scheme(bed, clip=True):
     return new_tiles
 
 
-def get_data(bam, references=None):    
-    samfile = pysam.AlignmentFile(bam, "rb")
+def get_data(bam, references=None, long_table=False):    
+    samfile = pysam.AlignmentFile(bam, mode="rb")
 
     # If no references are specified, calculate stats for every contig
     if references is None:
@@ -110,28 +110,49 @@ def get_data(bam, references=None):
         base_counts = bcount(ref_len, reads, starts, ctuples)
 
         # Generate per-position statistics
-        ref_data = []
-        for reference_pos, b_c in enumerate(base_counts):
-            # TODO: Is it best to ignore these completely?
-            # b_c.pop('N')
-            
-            row = []
-            coverage = sum(b_c)
-            if coverage != 0:
-                base_probabilities = [count / coverage for count in b_c]
-                base_percentages = [100 * probability for probability in base_probabilities]
-                entropy = normalising_factor * sum([-(x * math.log2(x)) if x != 0 else 0 for x in base_probabilities])
-            else:
-                base_percentages = invalid_base_percentages
-                entropy = 1 # TODO: is this an appropriate value?
+        if not long_table:
+            # Wide format (default)
+            ref_data = []
+            for reference_pos, b_c in enumerate(base_counts):            
+                coverage = sum(b_c)
+                if coverage != 0:
+                    base_probabilities = [count / coverage for count in b_c]
+                    base_percentages = [100 * probability for probability in base_probabilities]
+                    entropy = normalising_factor * sum([-(x * math.log2(x)) if x != 0 else 0 for x in base_probabilities])
+                else:
+                    base_percentages = invalid_base_percentages
+                    entropy = 1 # TODO: is this an appropriate value?
+                row = []
+                row.append(reference_pos + 1) # Output one-based coordinates
+                row.append(coverage)
+                row.extend(b_c)
+                row.extend(base_percentages)
+                row.append(entropy)
+                ref_data.append(row)
+            data[ref] = ref_data, num_reads
+        else:
+            # Long format
+            ref_data = []
+            for reference_pos, b_c in enumerate(base_counts):            
+                coverage = sum(b_c)
+                if coverage != 0:
+                    base_probabilities = [count / coverage for count in b_c]
+                    base_percentages = [100 * probability for probability in base_probabilities]
+                    entropy = normalising_factor * sum([-(x * math.log2(x)) if x != 0 else 0 for x in base_probabilities])
+                else:
+                    base_percentages = invalid_base_percentages
+                    entropy = 1 # TODO: is this an appropriate value?
 
-            row.append(reference_pos + 1) # Output one-based coordinates
-            row.append(coverage)
-            row.extend(b_c)
-            row.extend(base_percentages)
-            row.append(entropy)
-            ref_data.append(row)
-        data[ref] = ref_data, num_reads
+                for base, count, percentage in zip(['A', 'C', 'G', 'T', 'N', 'DS'], b_c, base_percentages):
+                    row = []
+                    row.append(reference_pos + 1) # Output one-based coordinates
+                    row.append(coverage)
+                    row.append(base)
+                    row.append(count)
+                    row.append(percentage)
+                    row.append(entropy)
+                    ref_data.append(row)
+            data[ref] = ref_data, num_reads
 
     samfile.close()
     return data
@@ -141,26 +162,28 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('bam', help='path to BAM file')
     parser.add_argument('--references', default=None, nargs='+', action='append', help='reference name(s)')
-    parser.add_argument('--bed', default=None, nargs='+', action='append', help='path to BED file')
-    parser.add_argument('--summarise', default=False, action='store_true', help='display summarising stats instead of per-position stats')
+    parser.add_argument('--bed', default=None, nargs='+', action='append', help='path to BED file') 
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument('--summarise', default=False, action='store_true', help='display summarising stats instead of per-position stats')
+    group.add_argument('--long', default=False, action='store_true', help='display per-position stats in long format')
     parser.add_argument('--dp', default=None, nargs='+', action='append', help='default = 3')
     args = parser.parse_args()
 
     # Move input references into single list, or set as None if none were given
-    if args.references is not None:
-        references = list({ref for ref_list in args.references for ref in ref_list})
-    else:
+    if args.references is None:
         references = None
+    else:
+        references = list({ref for ref_list in args.references for ref in ref_list})
     
     # Move bed files into single list, check only one was given
-    if args.bed is not None:
+    if args.bed is None:
+        bed = None
+    else:
         bed_list = list({bed for bed_list in args.bed for bed in bed_list})
         if len(bed_list) > 1:
             raise Exception('Only one BED file can be provided')
         else:
             bed = bed_list[0]
-    else:
-        bed = None
     
     # Handle dp argument
     if args.dp is None:
@@ -177,38 +200,57 @@ def main():
         pysam.index(args.bam) # type: ignore
 
     # Generate data
-    data = get_data(args.bam, references)
+    data = get_data(args.bam, references=references, long_table=args.long)
 
     # Output columns
-    columns = [
-        'reference_position', 
-        'coverage', 
-        'num_a', 
-        'num_c', 
-        'num_g', 
-        'num_t',
-        'num_n',
-        'num_deletions_skips',
-        'pc_a', 
-        'pc_c', 
-        'pc_g',
-        'pc_t',
-        'pc_n',
-        'pc_deletions_skips', 
-        'entropy', 
-    ]
+    if not args.long:
+        # Wide format columns (default)
+        columns = [
+            'position', 
+            'coverage', 
+            'num_a', 
+            'num_c', 
+            'num_g', 
+            'num_t',
+            'num_n',
+            'num_ds',
+            'pc_a', 
+            'pc_c', 
+            'pc_g',
+            'pc_t',
+            'pc_n',
+            'pc_ds', 
+            'entropy', 
+        ]
+    else:
+        # Long format columns (not compatible with --summarise)
+        columns = [
+            'position',
+            'coverage',
+            'base',
+            'count',
+            'percentage',
+            'entropy'
+        ]
 
     if not args.summarise:
-        # Print all results (in the correct order)
-        print('reference_name', '\t'.join(columns), sep='\t')
-        for ref, (ref_data, _) in data.items():
-            for i, row in enumerate(ref_data):
-                print(ref, '\t'.join([str(round(x, dp)) for x in row]), sep='\t')
+        if not args.long:
+            # Wide format (default)
+            print('reference', '\t'.join(columns), sep='\t')
+            for ref, (ref_data, _) in data.items():
+                for i, row in enumerate(ref_data):
+                    print(ref, '\t'.join([str(round(x, dp)) for x in row]), sep='\t')
+        else:
+            # Long format
+            print('reference', '\t'.join(columns), sep='\t')
+            for ref, (ref_data, _) in data.items():
+                for i, row in enumerate(ref_data):
+                    print(ref, '\t'.join([str(round(x, dp)) if not isinstance(x, str) else x for x in row]), sep='\t')
     else:
         # Generate summary statistics
         coverage_column = columns.index('coverage')
-        num_deletions_column = columns.index('num_deletions_skips')
-        percentages_deletions_column = columns.index('pc_deletions_skips')
+        num_deletions_column = columns.index('num_ds')
+        percentages_deletions_column = columns.index('pc_ds')
         entropies_column = columns.index('entropy')
 
         for ref, (ref_data, total_reads) in data.items():
