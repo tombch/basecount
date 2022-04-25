@@ -4,7 +4,7 @@
 #include <string>
 
 
-std::vector<std::vector<unsigned int>> compute(unsigned int refLen, std::vector<std::string> reads, std::vector<unsigned int> starts, std::vector<std::vector<std::pair<unsigned int, unsigned int>>> ctuples)
+std::vector<std::vector<unsigned int>> bcount(unsigned int refLen, std::vector<std::string> reads, std::vector<unsigned int> starts, std::vector<std::vector<std::pair<unsigned int, unsigned int>>> ctuples)
 {
     // 2D array containing counts of A, C, G, T, N (Illumina unknown base) and DS (deletions+skips) present in the reads, for each position in the reference
     std::vector<std::vector<unsigned int>> baseCounts(refLen, std::vector<unsigned int>(6));
@@ -83,7 +83,7 @@ std::vector<std::vector<unsigned int>> compute(unsigned int refLen, std::vector<
 }
 
 
-PYBIND11_MODULE(basecomp, m)
+PYBIND11_MODULE(count, m)
 {
-    m.def("compute", &compute);
+    m.def("bcount", &bcount);
 }

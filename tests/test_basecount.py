@@ -2,12 +2,14 @@ import os
 import math
 import glob
 import pysam
+import pytest
 import basecount
 
 
 # Put path to directory of BAM files here
-samples_dir = ""
-bams = glob.glob(f'{samples_dir}/*.bam')
+bams_dir = ""
+# List of files within the directory that end in .bam
+bams = glob.glob(f'{bams_dir}/*.bam')
 
 
 def get_test_data(bam):    
@@ -57,26 +59,26 @@ def get_test_data(bam):
     return data
 
 
-def test_basecount():
-    for bam in bams:
-        # Create an index (if it doesn't already exist) in the same dir as the BAM
-        if not os.path.isfile(bam + '.bai'):
-            pysam.index(bam) # type: ignore
-        
-        basecount_data = basecount.get_data(bam)
-        test_data = get_test_data(bam)
+@pytest.mark.parametrize("bam", bams)
+def test_basecount(bam):
+    # Create an index (if it doesn't already exist) in the same dir as the BAM
+    if not os.path.isfile(bam + '.bai'):
+        pysam.index(bam) # type: ignore
+    
+    basecount_data = basecount.get_data(bam)
+    test_data = get_test_data(bam)
 
-        # Test for matching references
-        assert basecount_data.keys() == test_data.keys()
+    # Test for matching references
+    assert basecount_data.keys() == test_data.keys()
 
-        # Compare each reference
-        for ref in basecount_data.keys():
-            basecount_ref_data, basecount_ref_num_reads = basecount_data[ref]
-            test_ref_data, test_ref_num_reads = test_data[ref]
+    # Compare each reference
+    for ref in basecount_data.keys():
+        basecount_ref_data, basecount_ref_num_reads = basecount_data[ref]
+        test_ref_data, test_ref_num_reads = test_data[ref]
 
-            # Test for matching total of reads
-            assert basecount_ref_num_reads == test_ref_num_reads
+        # Test for matching total of reads
+        assert basecount_ref_num_reads == test_ref_num_reads
 
-            # Iterate through rows, comparing each
-            for basecount_row, test_row in zip(basecount_ref_data, test_ref_data):
-                assert basecount_row == test_row
+        # Iterate through rows, comparing each
+        for basecount_row, test_row in zip(basecount_ref_data, test_ref_data):
+            assert basecount_row == test_row

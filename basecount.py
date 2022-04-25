@@ -3,7 +3,7 @@ import math
 import pysam
 import argparse
 import numpy as np
-import basecomp
+from count import bcount
 
 
 # Written by Sam Nicholls as part of swell
@@ -107,7 +107,7 @@ def get_data(bam, references=None):
         num_reads = len(reads)
 
         # Count the bases
-        base_counts = basecomp.compute(ref_len, reads, starts, ctuples)
+        base_counts = bcount(ref_len, reads, starts, ctuples)
 
         # Generate per-position statistics
         ref_data = []
