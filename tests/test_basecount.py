@@ -25,7 +25,7 @@ def get_test_data(bam):
         base_counts = [{'A' : 0, 'C' : 0, 'G' : 0, 'T' : 0, 'N' : 0, 'DS' : 0} for _ in range(ref_len)]
 
         # Count the bases (very slowly)
-        for pileupcolumn in samfile.pileup(ref, min_base_quality=0, min_mapping_quality=0, max_depth=100000, stepper="nofilter"):
+        for pileupcolumn in samfile.pileup(ref, min_base_quality=0, min_mapping_quality=0, max_depth=100000000, stepper="nofilter"):
             ref_pos = pileupcolumn.reference_pos # type: ignore
 
             for pileupread in pileupcolumn.pileups: # type: ignore
