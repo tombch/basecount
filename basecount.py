@@ -143,7 +143,7 @@ def get_data(bam, references=None, long_table=False):
                     base_percentages = invalid_base_percentages
                     entropy = 1 # TODO: is this an appropriate value?
 
-                for base, count, percentage in zip(['A', 'C', 'G', 'T', 'N', 'DS'], b_c, base_percentages):
+                for base, count, percentage in zip(['A', 'C', 'G', 'T', 'DS', 'N'], b_c, base_percentages):
                     row = []
                     row.append(reference_pos + 1) # Output one-based coordinates
                     row.append(coverage)
@@ -212,14 +212,14 @@ def main():
             'num_c', 
             'num_g', 
             'num_t',
-            'num_n',
             'num_ds',
+            'num_n',
             'pc_a', 
             'pc_c', 
             'pc_g',
             'pc_t',
-            'pc_n',
-            'pc_ds', 
+            'pc_ds',
+            'pc_n', 
             'entropy', 
         ]
     else:
