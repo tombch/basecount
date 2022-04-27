@@ -205,33 +205,10 @@ def main():
     # Output columns
     if not args.long:
         # Wide format columns (default)
-        columns = [
-            'position', 
-            'coverage', 
-            'num_a', 
-            'num_c', 
-            'num_g', 
-            'num_t',
-            'num_ds',
-            'num_n',
-            'pc_a', 
-            'pc_c', 
-            'pc_g',
-            'pc_t',
-            'pc_ds',
-            'pc_n', 
-            'entropy', 
-        ]
+        columns = ['position', 'coverage', 'num_a', 'num_c', 'num_g', 'num_t', 'num_ds', 'num_n', 'pc_a', 'pc_c', 'pc_g', 'pc_t', 'pc_ds', 'pc_n', 'entropy']
     else:
         # Long format columns (not compatible with --summarise)
-        columns = [
-            'position',
-            'coverage',
-            'base',
-            'count',
-            'percentage',
-            'entropy'
-        ]
+        columns = ['position', 'coverage', 'base', 'count', 'percentage', 'entropy']
 
     if not args.summarise:
         if not args.long:
@@ -249,20 +226,15 @@ def main():
     else:
         # Generate summary statistics
         coverage_column = columns.index('coverage')
-        num_deletions_column = columns.index('num_ds')
-        percentages_deletions_column = columns.index('pc_ds')
         entropies_column = columns.index('entropy')
 
         for ref, (ref_data, total_reads) in data.items():
             ref_length = len(ref_data)
+            coverages = [row[coverage_column] for row in ref_data]
 
-            num_no_coverage = len([row[coverage_column] for row in ref_data if row[coverage_column] == 0])
-            pc_coverage = 100 - (100 * num_no_coverage / ref_length)
-
+            num_ref_coverage = len([cov for cov in coverages if cov != 0])
+            pc_ref_coverage = 100 * (num_ref_coverage / ref_length)
             avg_coverage = np.mean([row[coverage_column] for row in ref_data])
-            avg_num_deletions_skips = np.mean([row[num_deletions_column] for row in ref_data])
-            avg_pc_deletions_skips = np.mean([row[percentages_deletions_column] for row in ref_data])
-
             entropies = [row[entropies_column] for row in ref_data]
             avg_entropies = np.mean(entropies)
             
@@ -274,15 +246,26 @@ def main():
                 scheme = tile_starts = tile_ends = []
 
             # Create tile vectors
+            coverage_data = [[] for _ in scheme]
+            mean_coverage_vector = []
+            median_coverage_vector = []
             entropy_data = [[] for _ in scheme]
             mean_entropy_vector = []
             median_entropy_vector = []
 
             for i, (start, end) in enumerate(zip(tile_starts, tile_ends)):
-                for j, entropy in enumerate(entropies):
+                for j, (coverage, entropy) in enumerate(zip(coverages, entropies)):
                     if start <= j <= end:
+                        coverage_data[i].append(coverage)
                         entropy_data[i].append(entropy)
                 
+                if coverage_data[i]:
+                    mean_coverage_vector.append(np.mean(coverage_data[i]))
+                    median_coverage_vector.append(np.median(coverage_data[i]))
+                else:
+                    mean_coverage_vector.append(-1)
+                    median_coverage_vector.append(-1)  
+  
                 if entropy_data[i]:
                     mean_entropy_vector.append(np.mean(entropy_data[i]))
                     median_entropy_vector.append(np.median(entropy_data[i]))
@@ -295,14 +278,13 @@ def main():
                 'ref_name' : ref,
                 'ref_length' : round(ref_length, dp),
                 'num_reads' : round(total_reads, dp),
+                'pc_ref_coverage' : round(pc_ref_coverage, dp),
                 'avg_coverage' : round(avg_coverage, dp),
-                'pc_ref_coverage' : round(pc_coverage, dp),
-                'num_pos_no_coverage' : round(num_no_coverage, dp), 
-                'avg_num_deletions_skips' : round(avg_num_deletions_skips, dp), 
-                'avg_pc_deletions_skips' : round(avg_pc_deletions_skips, dp), 
-                'avg_entropy' : round(avg_entropies, dp), 
+                'avg_entropy' : round(avg_entropies, dp),
+                'mean_coverage_tile_vector' : ', '.join([str(round(x, dp)) for x in mean_coverage_vector]) if mean_coverage_vector else '-',
+                'median_coverage_tile_vector' : ', '.join([str(round(x, dp)) for x in median_coverage_vector]) if median_coverage_vector else '-',
                 'mean_entropy_tile_vector' : ', '.join([str(round(x, dp)) for x in mean_entropy_vector]) if mean_entropy_vector else '-',
-                'median_entropy_tile_vector' : ', '.join([str(round(x, dp)) for x in median_entropy_vector]) if median_entropy_vector else '-',
+                'median_entropy_tile_vector' : ', '.join([str(round(x, dp)) for x in median_entropy_vector]) if median_entropy_vector else '-'
             }
 
             # Display summary statistics

@@ -75,17 +75,16 @@ $ python basecount.py BAM_FILE --summarise
 
 Example output:
 ```
-ref_name                    XXXXXXXXXX
-ref_length                  29903
-num_reads                   123901
-avg_coverage                1649.805
-pc_ref_coverage             99.057
-num_pos_no_coverage         282
-avg_num_deletions_skips     34.822
-avg_pc_deletions_skips      2.011
-avg_entropy                 0.116
-mean_entropy_tile_vector    -
-median_entropy_tile_vector  -
+ref_name                     XXXXXXXXXX
+ref_length                   29903
+num_reads                    123901
+pc_ref_coverage              99.057
+avg_coverage                 1649.805
+avg_entropy                  0.116
+mean_coverage_tile_vector    -
+median_coverage_tile_vector  -
+mean_entropy_tile_vector     -
+median_entropy_tile_vector   -
 ```
 
 #### Summary stats (with BED file):
@@ -95,15 +94,14 @@ $ python basecount.py BAM_PATH --bed BED_PATH --summarise
 
 Example output:
 ```
-ref_name                    XXXXXXXXXX
-ref_length                  29903
-num_reads                   123901
-avg_coverage                1649.805
-pc_ref_coverage             99.057
-num_pos_no_coverage         282
-avg_num_deletions_skips     34.822
-avg_pc_deletions_skips      2.011
-avg_entropy                 0.116
-mean_entropy_tile_vector    0.107, 0.116, 0.127, 0.118, 0.113, 0.111, 0.11, 0.077, 0.12, 0.071, 0.105, 0.119, 0.088, 0.147, 0.116, 0.109, 0.122, 0.12, ..
-median_entropy_tile_vector  0.094, 0.104, 0.112, 0.102, 0.108, 0.101, 0.104, 0.0, 0.113, 0.013, 0.093, 0.111, 0.022, 0.143, 0.107, 0.098, 0.108, 0.106,..
+ref_name                     XXXXXXXXXX
+ref_length                   29903
+num_reads                    123901
+pc_ref_coverage              99.057
+avg_coverage                 1649.805
+avg_entropy                  0.116
+mean_coverage_tile_vector    243.906, 1229.481, 1729.518, 2711.367, 1346.401, 3041.555, 1309.193, 143.864, 1494.996, 420.834..
+median_coverage_tile_vector  138.0, 1219.0, 1725.0, 2582.0, 678.0, 2932.0, 1309.0, 13.0, 1496.0, 16.0, 1471.0, 1644.0, 9.0, ..
+mean_entropy_tile_vector     0.107, 0.116, 0.127, 0.118, 0.113, 0.111, 0.11, 0.077, 0.12, 0.071, 0.105, 0.119, 0.088, 0.147,..
+median_entropy_tile_vector   0.094, 0.104, 0.112, 0.102, 0.108, 0.101, 0.104, 0.0, 0.113, 0.013, 0.093, 0.111, 0.022, 0.143,..
 ```
