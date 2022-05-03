@@ -1,5 +1,5 @@
 import setuptools
-from pybind11.setup_helpers import Pybind11Extension
+from pybind11.setup_helpers import Pybind11Extension, build_ext
 
 
 ext_modules = [
@@ -15,6 +15,7 @@ setuptools.setup(
     author="Thomas Brier",
     version="1.0.0",
     packages=setuptools.find_packages(),
+    cmdclass={"build_ext": build_ext},
     ext_modules=ext_modules, # type: ignore
     entry_points = {
         'console_scripts': 'basecount = src.main:run'
