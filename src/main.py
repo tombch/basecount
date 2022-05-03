@@ -158,7 +158,7 @@ def get_data(bam, references=None, long_table=False):
     return data
 
 
-def main():
+def run():
     parser = argparse.ArgumentParser()
     parser.add_argument('bam', help='path to BAM file')
     parser.add_argument('--references', default=None, nargs='+', action='append', help='reference name(s)')
@@ -290,7 +290,3 @@ def main():
             # Display summary statistics
             for name, val in summary_stats.items():
                 print(name, val, sep='\t')
-
-
-if __name__ == '__main__':
-    main()

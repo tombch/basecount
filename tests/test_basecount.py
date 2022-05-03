@@ -1,10 +1,10 @@
 import os
 import math
 import glob
-import numpy as np
 import pysam
 import pytest
-import basecount
+import numpy as np
+import src.main as main
 import concurrent.futures
 
 
@@ -91,7 +91,7 @@ def test_basecount(bam):
     if not os.path.isfile(bam + '.bai'):
         pysam.index(bam) # type: ignore
     
-    basecount_data = basecount.get_data(bam)
+    basecount_data = main.get_data(bam)
     test_data = get_test_data(bam)
 
     # Test for matching references

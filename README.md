@@ -1,25 +1,24 @@
 # `basecount`
-## Usage
-Create and activate the conda environment:
+### Setup
 ```
+$ git clone https://github.com/tombch/basecount.git
+$ cd basecount/
 $ conda env create -f environment.yml
 $ conda activate basecount
+$ pip install .
 ```
 
-Compile the C++ code:
-```
-$ c++ -O3 -Wall -shared -std=c++11 -fPIC $(python3 -m pybind11 --includes) count.cpp -o count$(python3-config --extension-suffix)
-```
+### Usage
 
 #### Per-position stats:
 **All references**
 ```
-$ python basecount.py BAM_FILE
+$ basecount BAM_FILE
 ```
 
 **Selected references**
 ```
-$ python basecount.py BAM_FILE --references REF_NAME_1 REF_NAME_2 ... 
+$ basecount BAM_FILE --references REF_NAME_1 REF_NAME_2 ... 
 ```
 
 Example output:
@@ -70,7 +69,7 @@ The table can also be displayed in long format (one base per row) by passing `--
 
 #### Summary stats:
 ```
-$ python basecount.py BAM_FILE --summarise
+$ basecount BAM_FILE --summarise
 ```
 
 Example output:
@@ -89,7 +88,7 @@ median_entropy_tile_vector   -
 
 #### Summary stats (with BED file):
 ```
-$ python basecount.py BAM_PATH --bed BED_PATH --summarise
+$ basecount BAM_FILE --bed BED_FILE --summarise
 ```
 
 Example output:
