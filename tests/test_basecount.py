@@ -4,12 +4,12 @@ import glob
 import pysam
 import pytest
 import numpy as np
-import src.main as main
 import concurrent.futures
+import basecount.main as main
 
 
 # Put path to directory of BAM files here
-bams_dir = ""
+bams_dir = "/home/tom/git/samples"
 # List of files within the directory that end in .bam
 bams = glob.glob(f'{bams_dir}/*.bam')
 # Max number of workers for getting test data

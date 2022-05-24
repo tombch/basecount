@@ -5,7 +5,7 @@ from pybind11.setup_helpers import Pybind11Extension, build_ext
 ext_modules = [
     Pybind11Extension(
         "count",
-        sources=['src/count.cpp']
+        sources=['basecount/count.cpp']
     )
 ]
 
@@ -13,11 +13,11 @@ ext_modules = [
 setuptools.setup(
     name="basecount",
     author="Thomas Brier",
-    version="1.0.0",
+    version="1.0.1",
     packages=setuptools.find_packages(),
     cmdclass={"build_ext": build_ext},
     ext_modules=ext_modules, # type: ignore
     entry_points = {
-        'console_scripts': 'basecount = src.main:run'
+        'console_scripts': 'basecount = basecount.main:run'
     }
 )

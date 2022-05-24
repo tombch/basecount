@@ -16,7 +16,8 @@ std::vector<std::vector<unsigned int>> bcount(
     std::vector<std::vector<unsigned int>> baseCounts(refLen, std::vector<unsigned int>(6));
 
     // Iterate through the reads, starts, and ctuples
-    for (unsigned int i = 0; i < reads.size(); i++)
+    const unsigned int numReads = reads.size();
+    for (unsigned int i = 0; i < numReads; i++)
     {
         // Read with soft clipped bases excluded
         const std::string &read = reads[i];
