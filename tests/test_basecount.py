@@ -19,6 +19,7 @@ num_workers = 8
 def calculate_ref_region(bam, ref, start, end):
     samfile = pysam.AlignmentFile(bam, mode="rb")
     normalising_factor = (1 / math.log2(5)) # Normalises maximum entropy to 1
+    secondary_normalising_factor = (1 / math.log2(4)) # Normalises maximum secondary_entropy to 1
     empty_bases = [0, 0, 0, 0, 0, 0]
     invalid_base_percentages = [-1, -1, -1, -1, -1, -1] # Percentage values where coverage is zero
     
@@ -36,18 +37,31 @@ def calculate_ref_region(bam, ref, start, end):
 
             coverage = pileupcolumn.nsegments # type: ignore
             if coverage != 0:
-                base_probabilities = [count / coverage for count in base_count[ref_pos - start].values()]
+                b_c = list(base_count[ref_pos - start].values())
+
+                base_probabilities = [count / coverage for count in b_c]
                 base_percentages = [100 * probability for probability in base_probabilities]
                 entropy = normalising_factor * sum([-(x * math.log2(x)) if x != 0 else 0 for x in base_probabilities])
+
+                secondary_base_count = list(b_c)
+                secondary_base_count.pop(np.argmax(b_c))
+                secondary_coverage = sum(secondary_base_count)
+                if secondary_coverage != 0:
+                    secondary_base_probabilities = [count / secondary_coverage for count in secondary_base_count]
+                    secondary_entropy = secondary_normalising_factor * sum([-(x * math.log2(x)) if x != 0 else 0 for x in secondary_base_probabilities])
+                else:
+                    secondary_entropy = 1
             else:
                 base_percentages = invalid_base_percentages
                 entropy = 1
+                secondary_entropy = 1
 
             region[ref_pos - start].append(ref_pos + 1)
             region[ref_pos - start].append(coverage)
             region[ref_pos - start].extend(base_count[ref_pos - start].values())
             region[ref_pos - start].extend(base_percentages)
             region[ref_pos - start].append(entropy)
+            region[ref_pos - start].append(secondary_entropy)
     
     # Fill empty rows
     for i, row in enumerate(region):
@@ -56,7 +70,7 @@ def calculate_ref_region(bam, ref, start, end):
             row.append(0)
             row.extend(empty_bases)
             row.extend(invalid_base_percentages)
-            row.append(1)
+            row.extend([1, 1])
 
     samfile.close()
     return region
