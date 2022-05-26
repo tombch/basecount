@@ -9,7 +9,7 @@ from basecount import BaseCount
 
 
 # Put path to directory of BAM files here
-bams_dir = "/home/tom/git/samples"
+bams_dir = ""
 # List of files within the directory that end in .bam
 bams = glob.glob(f'{bams_dir}/*.bam')
 # Max number of workers for getting test data
