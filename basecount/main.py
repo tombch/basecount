@@ -3,92 +3,21 @@ import pysam
 import argparse
 import numpy as np
 from count import bcount
-
-
-# Written by Sam Nicholls as part of swell
-# https://github.com/SamStudio8/swell
-def load_scheme(bed, clip=True):
-    tiles_dict = {}
-    with open(bed) as scheme_fh:
-        for line in scheme_fh:
-            data = line.strip().split()
-            start, end, tile = int(data[1]), int(data[2]), data[3] 
-            scheme, tile, side = tile.split("_", 2)
-
-            if tile not in tiles_dict:
-                tiles_dict[tile] = {
-                    "start": -1,
-                    "inside_start": -1,
-                    "inside_end": -1,
-                    "end": -1,
-                }
-
-            if "LEFT" in side.upper():
-                if tiles_dict[tile]["start"] == -1:
-                    tiles_dict[tile]["start"] = start
-                    tiles_dict[tile]["inside_start"] = end
-
-                if start < tiles_dict[tile]["start"]:
-                    # Push the window region to the leftmost left position
-                    tiles_dict[tile]["start"] = start
-                if end > tiles_dict[tile]["inside_start"]:
-                    # Open the start of the inner window to the rightmost left position
-                    tiles_dict[tile]["inside_start"] = end
-
-            elif "RIGHT" in side.upper():
-                if tiles_dict[tile]["end"] == -1:
-                    tiles_dict[tile]["end"] = end
-                    tiles_dict[tile]["inside_end"] = start
-
-                if end > tiles_dict[tile]["end"]:
-                    # Stretch the window out to the rightmost right position
-                    tiles_dict[tile]["end"] = end
-                if start < tiles_dict[tile]["inside_end"]:
-                    # Close the end of the inner window to the leftmost right position
-                    tiles_dict[tile]["inside_end"] = start
-        
-        tiles_list = []
-        tiles_seen = set()
-        scheme_fh.seek(0)
-        for line in scheme_fh:
-            data = line.strip().split()
-            start, end, tile = data[1], data[2], data[3] 
-            scheme, tile, side = tile.split("_", 2)
-            tile_tup = (scheme, tile, tiles_dict[tile])
-            if tiles_dict[tile]["inside_start"] != -1 and tiles_dict[tile]["inside_end"] != -1 and tile not in tiles_seen:
-                tiles_list.append(tile_tup)
-                tiles_seen.add(tile)
-
-        tiles_list = sorted(tiles_list, key=lambda x: int(x[1])) # Sort by tile number
-        if clip: # Default
-            # Iterate through tiles and clip
-            new_tiles = []
-            for tile_index, tile_tuple in enumerate(tiles_list):
-                tile_dict = dict(tile_tuple[2])
-
-                # Clip the start of this window to the end of the last window, if there is a last window
-                if tile_index > 0:
-                    tile_dict["inside_start"] = tiles_list[tile_index - 1][2]["end"]
-
-                # Clip the end of this window to the start of the next window, if there is a next window
-                if tile_index < len(tiles_list) - 1:
-                    tile_dict["inside_end"] = tiles_list[tile_index + 1][2]["start"]
-
-                new_tiles.append((tile_tuple[0], tile_tuple[1], tile_dict))
-        else:
-            new_tiles = tiles_list
-
-    return new_tiles
+from basecount.scheme import load_scheme
 
 
 # The difference barely matters 
 # But still, why compute these ~30000 times when you can just do it once
-NORMALISING_FACTOR = 1 / math.log2(5)
-SECONDARY_NORMALISING_FACTOR = 1 / math.log2(4)
+# TODO: keep the normalising factors or not?
+NORMALISING_FACTOR = 1 / math.log2(6)
+SECONDARY_NORMALISING_FACTOR = 1 / math.log2(5)
 INVALID_PERCENTAGES = [-1, -1, -1, -1, -1, -1]
 
+def get_entropy(probabilities):
+    return sum([-(x * math.log2(x)) if x != 0 else 0 for x in probabilities])
+
 def get_position_stats(base_count):
-    # Defaults if the coverage is zero
+    # Defaults for when the coverage is zero
     base_percentages = INVALID_PERCENTAGES
     entropy = 1
     secondary_entropy = 1
@@ -97,19 +26,19 @@ def get_position_stats(base_count):
     if coverage != 0:
         base_probabilities = [count / coverage for count in base_count]
         base_percentages = [100 * probability for probability in base_probabilities]
-        entropy = NORMALISING_FACTOR * sum([-(x * math.log2(x)) if x != 0 else 0 for x in base_probabilities])
+        entropy = NORMALISING_FACTOR * get_entropy(base_probabilities)
 
         secondary_base_count = list(base_count)
         secondary_base_count.pop(np.argmax(base_count))
         secondary_coverage = sum(secondary_base_count)
         if secondary_coverage != 0:
             secondary_base_probabilities = [count / secondary_coverage for count in secondary_base_count]
-            secondary_entropy = SECONDARY_NORMALISING_FACTOR * sum([-(x * math.log2(x)) if x != 0 else 0 for x in secondary_base_probabilities])
+            secondary_entropy = SECONDARY_NORMALISING_FACTOR * get_entropy(secondary_base_probabilities)
     
     return coverage, base_percentages, entropy, secondary_entropy
 
 
-def get_data(bam, references=None, long_table=False):
+def get_basecount_data(bam, references=None, long_table=False):
     # Temporarily suppress HTSlib's messages when opening the file
     old_verbosity = pysam.set_verbosity(0)
     samfile = pysam.AlignmentFile(bam, mode="rb")
@@ -168,6 +97,7 @@ def get_data(bam, references=None, long_table=False):
             for reference_pos, b_c in enumerate(base_counts):
                 coverage, base_percentages, entropy, secondary_entropy = get_position_stats(b_c)
                 row = []
+                row.append(ref)
                 row.append(reference_pos + 1) # Output one-based coordinates
                 row.append(coverage)
                 row.extend(b_c)
@@ -176,7 +106,10 @@ def get_data(bam, references=None, long_table=False):
                 row.append(secondary_entropy)
                 ref_data.append(row)
                 
-            basecount_data[ref] = ref_data, read_data[ref]["num_reads"]
+            basecount_data[ref] = {
+                "rows" : ref_data, 
+                "num_reads" : read_data[ref]["num_reads"]
+            }
         else:
             # Long format
             ref_data = []
@@ -184,6 +117,7 @@ def get_data(bam, references=None, long_table=False):
                 coverage, base_percentages, entropy, secondary_entropy = get_position_stats(b_c)
                 for base, count, percentage in zip(["A", "C", "G", "T", "DS", "N"], b_c, base_percentages):
                     row = []
+                    row.append(ref)
                     row.append(reference_pos + 1) # Output one-based coordinates
                     row.append(coverage)
                     row.append(base)
@@ -193,10 +127,106 @@ def get_data(bam, references=None, long_table=False):
                     row.append(secondary_entropy)
                     ref_data.append(row)
 
-            basecount_data[ref] = ref_data, read_data[ref]["num_reads"]
+            basecount_data[ref] = {
+                "rows" : ref_data, 
+                "num_reads" : read_data[ref]["num_reads"]
+            }
 
     samfile.close()
     return basecount_data
+
+
+class BaseCount():
+    def __init__(self, bam, references=None, long_table=False):
+        # TODO: Consider moving long/wide data formatting into this class
+        '''
+        Generate and store basecount data.
+        
+        Arguments:
+
+        * `bam`: path to BAM file
+        * `references`: list of references within BAM file to run basecount on. If `None`, basecount will be run on every reference.
+        * `long_table`: `True`/`False` to determine whether basecount data is stored in long or wide format. Is `False` by default.
+        '''
+        if long_table:
+            self.columns = [
+                "reference", 
+                "position", 
+                "coverage", 
+                "base", 
+                "count", 
+                "percentage", 
+                "entropy", 
+                "secondary_entropy"
+            ]
+        else:
+            self.columns = [
+                "reference", 
+                "position", 
+                "coverage", 
+                "num_a", 
+                "num_c", 
+                "num_g", 
+                "num_t", 
+                "num_ds", 
+                "num_n", 
+                "pc_a", 
+                "pc_c", 
+                "pc_g", 
+                "pc_t", 
+                "pc_ds", 
+                "pc_n", 
+                "entropy", 
+                "secondary_entropy"
+            ]
+        self.data = get_basecount_data(bam, references, long_table)
+        self.references = list(self.data.keys())
+        self.reference_lengths = {ref : len(self.data[ref]["rows"]) for ref in self.references}
+
+    def rows(self, reference=None):
+        '''
+        Returns an iterator of lists for the basecount data.
+
+        If a reference is given, then only basecount data for that reference will be yielded.
+        '''
+        if reference is None:
+            for ref in self.data.keys():
+                for row in self.data[ref]["rows"]:
+                    yield row
+        else:
+            if self.data.get(reference) is None:
+                raise Exception(f"{reference} is not a valid reference")
+            for row in self.data[reference]["rows"]:
+                yield row
+
+    def records(self, reference=None):
+        '''
+        Returns an iterator of dictionaries (with column names as the keys) for the basecount data.
+
+        If a reference is given, then only basecount data for that reference will be yielded.
+        '''
+        if reference is None:
+            for ref in self.data.keys():
+                for row in self.data[ref]["rows"]:
+                    yield dict(zip(self.columns, row))
+        else:
+            if self.data.get(reference) is None:
+                raise Exception(f"{reference} is not a valid reference")
+            for row in self.data[reference]["rows"]:
+                yield dict(zip(self.columns, row))
+
+    def num_reads(self, reference=None):
+        '''
+        Returns the total number of reads, across all references.
+
+        If a reference is given, returns the total number of reads just for that reference.
+        '''
+        if reference is None:
+            return sum([self.data[ref]["num_reads"] for ref in self.references])
+        else:
+            if self.data.get(reference) is None:
+                raise Exception(f"{reference} is not a valid reference")
+            return self.data[reference]["num_reads"]
 
 
 def run():
@@ -236,44 +266,24 @@ def run():
         else:
             dp = int(dp_list[0])
 
-    # Generate data
-    data = get_data(args.bam, references=references, long_table=args.long)
-
-    # Output columns
-    if not args.long:
-        # Wide format columns (default)
-        columns = ["position", "coverage", "num_a", "num_c", "num_g", "num_t", "num_ds", "num_n", "pc_a", "pc_c", "pc_g", "pc_t", "pc_ds", "pc_n", "entropy", "secondary_entropy"]
-    else:
-        # Long format columns (not compatible with --summarise)
-        columns = ["position", "coverage", "base", "count", "percentage", "entropy", "secondary_entropy"]
+    # Generate the data
+    bc = BaseCount(args.bam, references=references, long_table=args.long)
 
     if not args.summarise:
-        if not args.long:
-            # Wide format (default)
-            print("reference", "\t".join(columns), sep="\t")
-            for ref, (ref_data, _) in data.items():
-                for i, row in enumerate(ref_data):
-                    print(ref, "\t".join([str(round(x, dp)) for x in row]), sep="\t")
-        else:
-            # Long format
-            print("reference", "\t".join(columns), sep="\t")
-            for ref, (ref_data, _) in data.items():
-                for i, row in enumerate(ref_data):
-                    print(ref, "\t".join([str(round(x, dp)) if not isinstance(x, str) else x for x in row]), sep="\t")
+        print("\t".join(bc.columns))
+        for row in bc.rows():
+            print("\t".join([str(round(x, dp)) if not isinstance(x, str) else x for x in row]), sep="\t")
     else:
-        # Generate summary statistics
-        coverage_column = columns.index("coverage")
-        entropies_column = columns.index("entropy")
+        # Generate summary statistics        
+        for ref in bc.references:
+            coverages = [record["coverage"] for record in bc.records(ref)]
+            avg_coverage = np.mean(coverages)
 
-        for ref, (ref_data, total_reads) in data.items():
-            ref_length = len(ref_data)
-            coverages = [row[coverage_column] for row in ref_data]
-
-            num_ref_coverage = len([cov for cov in coverages if cov != 0])
-            pc_ref_coverage = 100 * (num_ref_coverage / ref_length)
-            avg_coverage = np.mean([row[coverage_column] for row in ref_data])
-            entropies = [row[entropies_column] for row in ref_data]
+            entropies = [record["entropy"] for record in bc.records(ref)]
             avg_entropies = np.mean(entropies)
+
+            ref_length = bc.reference_lengths[ref]
+            pc_ref_coverage = 100 * (len([cov for cov in coverages if cov != 0]) / ref_length)
             
             if bed is not None:
                 scheme = load_scheme(bed)
@@ -314,7 +324,7 @@ def run():
             summary_stats = {
                 "ref_name" : ref,
                 "ref_length" : round(ref_length, dp),
-                "num_reads" : round(total_reads, dp),
+                "num_reads" : round(bc.num_reads(ref), dp),
                 "pc_ref_coverage" : round(pc_ref_coverage, dp),
                 "avg_coverage" : round(avg_coverage, dp),
                 "avg_entropy" : round(avg_entropies, dp),

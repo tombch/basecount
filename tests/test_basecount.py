@@ -5,11 +5,11 @@ import pysam
 import pytest
 import numpy as np
 import concurrent.futures
-import basecount.main as main
+from basecount import BaseCount
 
 
 # Put path to directory of BAM files here
-bams_dir = ""
+bams_dir = "/home/tom/git/samples"
 # List of files within the directory that end in .bam
 bams = glob.glob(f'{bams_dir}/*.bam')
 # Max number of workers for getting test data
@@ -18,8 +18,8 @@ num_workers = 8
 
 def calculate_ref_region(bam, ref, start, end):
     samfile = pysam.AlignmentFile(bam, mode="rb")
-    normalising_factor = (1 / math.log2(5)) # Normalises maximum entropy to 1
-    secondary_normalising_factor = (1 / math.log2(4)) # Normalises maximum secondary_entropy to 1
+    normalising_factor = (1 / math.log2(6)) # Normalises maximum entropy to 1
+    secondary_normalising_factor = (1 / math.log2(5)) # Normalises maximum secondary_entropy to 1
     empty_bases = [0, 0, 0, 0, 0, 0]
     invalid_base_percentages = [-1, -1, -1, -1, -1, -1] # Percentage values where coverage is zero
     
@@ -56,6 +56,7 @@ def calculate_ref_region(bam, ref, start, end):
                 entropy = 1
                 secondary_entropy = 1
 
+            region[ref_pos - start].append(ref)
             region[ref_pos - start].append(ref_pos + 1)
             region[ref_pos - start].append(coverage)
             region[ref_pos - start].extend(base_count[ref_pos - start].values())
@@ -66,6 +67,7 @@ def calculate_ref_region(bam, ref, start, end):
     # Fill empty rows
     for i, row in enumerate(region):
         if len(row) == 0:
+            row.append(ref)
             row.append(start + i + 1)
             row.append(0)
             row.extend(empty_bases)
@@ -105,20 +107,22 @@ def test_basecount(bam):
     if not os.path.isfile(bam + '.bai'):
         pysam.index(bam) # type: ignore
     
-    basecount_data = main.get_data(bam)
+    bc = BaseCount(bam)
     test_data = get_test_data(bam)
 
     # Test for matching references
-    assert basecount_data.keys() == test_data.keys()
+    assert bc.references == list(test_data.keys())
 
-    # Compare each reference
-    for ref in basecount_data.keys():
-        basecount_ref_data, basecount_ref_num_reads = basecount_data[ref]
+    # Compare the data for each reference
+    for ref in bc.references:
         test_ref_data, test_ref_num_reads = test_data[ref]
 
+        # Test for matching reference lengths
+        assert bc.reference_lengths[ref] == len(test_ref_data)
+
         # Test for matching total of reads
-        assert basecount_ref_num_reads == test_ref_num_reads
+        assert bc.num_reads(ref) == test_ref_num_reads
 
         # Iterate through rows, comparing each
-        for basecount_row, test_row in zip(basecount_ref_data, test_ref_data):
-            assert basecount_row == test_row
+        for bc_row, test_row in zip(bc.rows(ref), test_ref_data):
+            assert bc_row == test_row
