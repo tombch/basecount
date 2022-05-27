@@ -10,7 +10,7 @@ def get_entropy(probabilities):
     return sum([-(x * math.log2(x)) if x != 0 else 0 for x in probabilities])
 
 
-def get_basecount_data(bam, references=None, long_format=False):
+def get_basecounts(bam, references=None, long_format=False):
     # Temporarily suppress HTSlib's messages when opening the file
     old_verbosity = pysam.set_verbosity(0)
     samfile = pysam.AlignmentFile(bam, mode="rb")
@@ -165,7 +165,7 @@ class BaseCount():
                 "entropy", 
                 "secondary_entropy"
             ]
-        self.data = get_basecount_data(bam, references, long_format)
+        self.data = get_basecounts(bam, references, long_format)
         self.references = list(self.data.keys())
         self.reference_lengths = {ref : len(self.data[ref]["rows"]) for ref in self.references}
 
