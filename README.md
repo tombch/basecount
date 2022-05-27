@@ -74,16 +74,18 @@ $ basecount BAM_FILE --summarise
 
 Example output:
 ```
-ref_name                     XXXXXXXXXX
-ref_length                   29903
-num_reads                    123901
-pc_ref_coverage              99.057
-avg_coverage                 1649.805
-avg_entropy                  0.105
-mean_coverage_tile_vector    -
-median_coverage_tile_vector  -
-mean_entropy_tile_vector     -
-median_entropy_tile_vector   -
+reference                             XXXXXXXXXX
+reference_length                      29903
+num_reads                             123901
+pc_reference_coverage                 99.057
+avg_depth                             1649.805
+avg_entropy                           0.105
+mean_coverage_tile_vector             -
+median_coverage_tile_vector           -
+mean_entropy_tile_vector              -
+median_entropy_tile_vector            -
+mean_secondary_entropy_tile_vector    -
+median_secondary_entropy_tile_vector  -
 ```
 
 #### Summary stats (with BED file):
@@ -93,14 +95,16 @@ $ basecount BAM_FILE --bed BED_FILE --summarise
 
 Example output:
 ```
-ref_name                     XXXXXXXXXX
-ref_length                   29903
-num_reads                    123901
-pc_ref_coverage              99.057
-avg_coverage                 1649.805
-avg_entropy                  0.105
-mean_coverage_tile_vector    243.906, 1229.481, 1729.518, 2711.367, 1346.401, 3041.555, 1309.193, 143.864, 1494.996, 420.834, 1916.251, 1642.465,..
-median_coverage_tile_vector  138.0, 1219.0, 1725.0, 2582.0, 678.0, 2932.0, 1309.0, 13.0, 1496.0, 16.0, 1471.0, 1644.0, 9.0, 1298.0, 1098.0, 2049...
-mean_entropy_tile_vector     0.096, 0.104, 0.114, 0.106, 0.102, 0.1, 0.099, 0.069, 0.108, 0.064, 0.095, 0.107, 0.079, 0.132, 0.104, 0.098, 0.11, ..
-median_entropy_tile_vector   0.084, 0.094, 0.1, 0.091, 0.097, 0.091, 0.094, 0.0, 0.101, 0.012, 0.083, 0.1, 0.02, 0.128, 0.097, 0.088, 0.097, 0.09..
+reference                             XXXXXXXXXX
+reference_length                      29903
+num_reads                             123901
+pc_reference_coverage                 99.057
+avg_depth                             1649.805
+avg_entropy                           0.105
+mean_coverage_tile_vector             243.906, 1229.481, 1729.518, 2711.367, 1346.401, 3041.555, 1309.193, 143.864, 1494.996, 420.834, 1916.251, ..
+median_coverage_tile_vector           138.0, 1219.0, 1725.0, 2582.0, 678.0, 2932.0, 1309.0, 13.0, 1496.0, 16.0, 1471.0, 1644.0, 9.0, 1298.0, 1098..
+mean_entropy_tile_vector              0.096, 0.104, 0.114, 0.106, 0.102, 0.1, 0.099, 0.069, 0.108, 0.064, 0.095, 0.107, 0.079, 0.132, 0.104, 0.09..
+median_entropy_tile_vector            0.084, 0.094, 0.1, 0.091, 0.097, 0.091, 0.094, 0.0, 0.101, 0.012, 0.083, 0.1, 0.02, 0.128, 0.097, 0.088, 0...
+mean_secondary_entropy_tile_vector    0.381, 0.623, 0.605, 0.623, 0.595, 0.615, 0.61, 0.659, 0.614, 0.658, 0.633, 0.624, 0.641, 0.601, 0.606, 0.6..
+median_secondary_entropy_tile_vector  0.418, 0.637, 0.615, 0.645, 0.628, 0.643, 0.634, 1.0, 0.635, 0.775, 0.649, 0.634, 0.821, 0.626, 0.632, 0.63..
 ```
