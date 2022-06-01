@@ -10,7 +10,7 @@ def get_entropy(probabilities):
     return sum([-(x * math.log2(x)) if x != 0 else 0 for x in probabilities])
 
 
-def get_basecounts(bam, references=None, long_format=False):
+def get_basecounts(bam, references=None, min_base_quality=0, min_mapping_quality=0, long_format=False):
     # Temporarily suppress HTSlib's messages when opening the file
     old_verbosity = pysam.set_verbosity(0)
     samfile = pysam.AlignmentFile(bam, mode="rb")
@@ -30,41 +30,46 @@ def get_basecounts(bam, references=None, long_format=False):
     # Iterator through all reads in the file (including unmapped)
     all_reads = samfile.fetch(until_eof=True) 
     
-    # Filter for mapped reads only, and store each read's sequence, start and ctuples
+    # Prepare read_data structure
     read_data = {}
+    for ref in references:
+        read_data[ref] = {}
+        read_data[ref]["ref_len"] = samfile.lengths[samfile.references.index(ref)]
+        read_data[ref]["reads"] = []
+        read_data[ref]["qualities"] = []
+        read_data[ref]["starts"] = []
+        read_data[ref]["ctuples"] = []
+
+    # Filter for mapped reads, storing each read's sequence, start and ctuples
     for read in all_reads:
-        if not read.is_unmapped:
+        if (not read.is_unmapped) and (read.mapping_quality >= min_mapping_quality):
             ref = read.reference_name
             if ref in references:
-                # Create dictionary for a reference if it doesn't already exist
-                if read_data.get(ref) is None:
-                    read_data[ref] = {}
-                    read_data[ref]["ref_len"] = samfile.lengths[samfile.references.index(ref)]
-                    read_data[ref]["reads"] = []
-                    read_data[ref]["starts"] = []
-                    read_data[ref]["ctuples"] = []
-
                 read_data[ref]["reads"].append(read.query_alignment_sequence)
+                read_data[ref]["qualities"].append(read.query_alignment_qualities)
                 read_data[ref]["starts"].append(read.reference_start)
                 read_data[ref]["ctuples"].append(read.cigartuples)
-    
+        
     # For each reference, verify the read data and calculate num_reads
     for ref, ref_data in read_data.items():
-        if not (len(ref_data["reads"]) == len(ref_data["starts"]) and len(ref_data["starts"]) == len(ref_data["ctuples"])):
-            raise Exception(f"The number of reads, starts and ctuples for {ref} do not match")
+        if len({len(ref_data[x]) for x in ["reads", "qualities", "starts", "ctuples"]}) != 1:
+            raise Exception(f"The number of reads, qualities, starts and ctuples for {ref} do not match")
         ref_data["num_reads"] = len(ref_data["reads"])
 
-    NORMALISING_FACTOR = 1 / math.log2(6)
-    SECONDARY_NORMALISING_FACTOR = 1 / math.log2(5)
-    INVALID_PERCENTAGES = [-1, -1, -1, -1, -1, -1]
-
+    num_bases = 6 # A, C, G, T, DS and N
+    invalid_percentages = [-1] * num_bases
+    normalising_factor = 1 / math.log2(num_bases)
+    secondary_normalising_factor = 1 / math.log2(num_bases - 1)
     basecount_data = {}
+    
     for ref in references:
         # Count the bases
         base_counts = bcount(
-            read_data[ref]["ref_len"], 
-            read_data[ref]["reads"], 
-            read_data[ref]["starts"], 
+            read_data[ref]["ref_len"],
+            min_base_quality,
+            read_data[ref]["reads"],
+            read_data[ref]["qualities"],
+            read_data[ref]["starts"],
             read_data[ref]["ctuples"]
         )
 
@@ -72,7 +77,7 @@ def get_basecounts(bam, references=None, long_format=False):
         ref_data = []
         for reference_pos, base_count in enumerate(base_counts):
             # Defaults for when the coverage is zero
-            base_percentages = INVALID_PERCENTAGES
+            base_percentages = invalid_percentages
             entropy = 1
             secondary_entropy = 1
             coverage = sum(base_count)
@@ -80,14 +85,14 @@ def get_basecounts(bam, references=None, long_format=False):
             if coverage != 0:
                 base_probabilities = [count / coverage for count in base_count]
                 base_percentages = [100 * probability for probability in base_probabilities]
-                entropy = NORMALISING_FACTOR * get_entropy(base_probabilities)
+                entropy = normalising_factor * get_entropy(base_probabilities)
 
                 secondary_base_count = list(base_count)
                 secondary_base_count.pop(np.argmax(base_count))
                 secondary_coverage = sum(secondary_base_count)
                 if secondary_coverage != 0:
                     secondary_base_probabilities = [count / secondary_coverage for count in secondary_base_count]
-                    secondary_entropy = SECONDARY_NORMALISING_FACTOR * get_entropy(secondary_base_probabilities)
+                    secondary_entropy = secondary_normalising_factor * get_entropy(secondary_base_probabilities)
 
             # Create row of basecount data, either in long format or wide format 
             # Wide format is default
@@ -124,7 +129,7 @@ def get_basecounts(bam, references=None, long_format=False):
 
 
 class BaseCount():
-    def __init__(self, bam, references=None, long_format=False):
+    def __init__(self, bam, references=None, min_base_quality=0, min_mapping_quality=0, long_format=False):
         '''
         Generate and store basecount data.
         
@@ -165,7 +170,13 @@ class BaseCount():
                 "entropy", 
                 "secondary_entropy"
             ]
-        self.data = get_basecounts(bam, references, long_format)
+        self.data = get_basecounts(
+            bam, 
+            references=references, 
+            min_base_quality=min_base_quality, 
+            min_mapping_quality=min_mapping_quality, 
+            long_format=long_format
+        )
         self.references = list(self.data.keys())
         self.reference_lengths = {ref : len(self.data[ref]["rows"]) for ref in self.references}
 
@@ -215,45 +226,50 @@ class BaseCount():
             return self.data[reference]["num_reads"]
 
 
+def handle_arg(arg, name, default=None, provided_once=False):
+    if arg is None:
+        # If nothing was provided, return the default value
+        value = default
+    else:
+        if provided_once:
+            if len(arg) > 1:
+                raise Exception(f"Argument --{name} can only be provided once")
+            else:
+                value = arg[0]
+        else:
+            # Gather all values into single list
+            value = list({a for a_list in arg for a in a_list})
+    return value
+
+
 def run():
     parser = argparse.ArgumentParser()
-    parser.add_argument("bam", help="path to BAM file")
-    parser.add_argument("--references", default=None, nargs="+", action="append", help="reference name(s)")
-    parser.add_argument("--bed", default=None, nargs="+", action="append", help="path to BED file") 
+    parser.add_argument("bam", help="Path to BAM file.")
+    parser.add_argument("--references", default=None, nargs="+", action="append", help="Reference name(s).")
+    parser.add_argument("--bed", default=None, action="append", help="Path to BED file.") 
+    parser.add_argument("--min-base-quality", default=None, action="append", help="Default value: 0")
+    parser.add_argument("--min-mapping-quality", default=None, action="append", help="Default value: 0")
     group = parser.add_mutually_exclusive_group()
-    group.add_argument("--summarise", default=False, action="store_true", help="display summarising stats instead of per-position stats")
-    group.add_argument("--long", default=False, action="store_true", help="display per-position stats in long format")
-    parser.add_argument("--dp", default=None, nargs="+", action="append", help="default = 3")
+    group.add_argument("--summarise", default=False, action="store_true", help="Output summary stats instead of per-position stats.")
+    group.add_argument("--long", default=False, action="store_true", help="Output per-position stats in long format.")
+    parser.add_argument("--dp", default=None, action="append", help="Default value: 3")
     args = parser.parse_args()
 
-    # Move input references into single list, or set as None if none were given
-    if args.references is None:
-        references = None
-    else:
-        references = list({ref for ref_list in args.references for ref in ref_list})
-    
-    # Move bed files into single list, check only one was given
-    if args.bed is None:
-        bed = None
-    else:
-        bed_list = list({bed for bed_list in args.bed for bed in bed_list})
-        if len(bed_list) > 1:
-            raise Exception("Only one BED file can be provided")
-        else:
-            bed = bed_list[0]
-    
-    # Handle dp argument
-    if args.dp is None:
-        dp = 3
-    else:
-        dp_list = list({dp for dp_list in args.dp for dp in dp_list})
-        if len(dp_list) > 1:
-            raise Exception("Only one dp value can be provided")
-        else:
-            dp = int(dp_list[0])
+    # Handle arguments
+    references = handle_arg(args.references, "references")
+    bed = handle_arg(args.bed, "bed", provided_once=True)
+    min_base_quality = int(handle_arg(args.min_base_quality, "min-base-quality", default=0, provided_once=True))
+    min_mapping_quality = int(handle_arg(args.min_mapping_quality, "min-mapping-quality", default=0, provided_once=True))
+    dp = int(handle_arg(args.dp, "dp", default=3, provided_once=True))
 
     # Generate the data
-    bc = BaseCount(args.bam, references=references, long_format=args.long)
+    bc = BaseCount(
+        args.bam,
+        references=references,
+        min_base_quality=min_base_quality, 
+        min_mapping_quality=min_mapping_quality, 
+        long_format=args.long
+    )
 
     if not args.summarise:
         print("\t".join(bc.columns))

@@ -5,18 +5,20 @@
 
 
 std::vector<std::vector<unsigned int>> bcount(
-    const unsigned int refLen, 
-    const std::vector<std::string> reads, 
+    const unsigned int refLen,
+    const unsigned int minBaseQuality,
+    const std::vector<std::string> reads,
+    const std::vector<std::vector<unsigned int>> qualities,
     const std::vector<unsigned int> starts, 
     const std::vector<std::vector<std::pair<unsigned int, unsigned int>>> ctuples
     )
 {
-    // 2D array 
-    // For each position in the reference, counts A, C, G, T, DS (deletions+skips) and N (Illumina unclear basecall) present in the reads
+    // 2D array that, for each position in the reference, counts A, C, G, T, deletions+skips and N (Illumina unclear basecall) present in the reads
     std::vector<std::vector<unsigned int>> baseCounts(refLen, std::vector<unsigned int>(6));
 
-    // Iterate through the reads, starts, and ctuples
     const unsigned int numReads = reads.size();
+
+    // Iterate through the reads, starts, and ctuples
     for (unsigned int i = 0; i < numReads; i++)
     {
         // Read with soft clipped bases excluded
@@ -26,12 +28,10 @@ std::vector<std::vector<unsigned int>> bcount(
         // Each pair is of the form (operation, length of operation)
         const std::vector<std::pair<unsigned int, unsigned int>> &tups = ctuples[i];
         
-        // (Modifiable copy of) the index for where the read starts in the reference
-        // Will be used to keep track of the current position in the reference
+        // Current position in the reference
         unsigned int refPos = starts[i];
 
-        // Start position in the current read (soft clipped bases excluded)
-        // Will be used to keep track of the current position in the read
+        // Current position in the read, with soft clipped bases excluded
         unsigned int readPos = 0;
 
         for (const auto &tup : tups)
@@ -50,14 +50,19 @@ std::vector<std::vector<unsigned int>> bcount(
                 // Iterate through the read for the given length of the operation
                 for (unsigned int j = 0; j < opLen; j++)
                 {
-                    switch(read[readPos++])
+                    if (qualities[i][readPos] >= minBaseQuality)
                     {
-                        case 'A' : baseCounts.at(refPos++).at(0) += 1; break;
-                        case 'C' : baseCounts.at(refPos++).at(1) += 1; break;
-                        case 'G' : baseCounts.at(refPos++).at(2) += 1; break;
-                        case 'T' : baseCounts.at(refPos++).at(3) += 1; break;
-                        case 'N' : baseCounts.at(refPos++).at(5) += 1; break;
+                        switch(read[readPos])
+                        {
+                            case 'A' : baseCounts.at(refPos).at(0) += 1; break;
+                            case 'C' : baseCounts.at(refPos).at(1) += 1; break;
+                            case 'G' : baseCounts.at(refPos).at(2) += 1; break;
+                            case 'T' : baseCounts.at(refPos).at(3) += 1; break;
+                            case 'N' : baseCounts.at(refPos).at(5) += 1; break;
+                        }
                     }
+                    readPos += 1;
+                    refPos += 1;
                 }
             }
 
@@ -73,7 +78,12 @@ std::vector<std::vector<unsigned int>> bcount(
             {
                 // Count the positions where deletions/skips occur
                 for (unsigned int j = 0; j < opLen; j++)
-                    baseCounts.at(refPos++).at(4) += 1;
+                {
+                    baseCounts.at(refPos).at(4) += 1;
+                    refPos += 1;
+                }
+                // TODO: Should deletions be exempt from quality scoring?
+                // They are assigned a score in samtools pileup but it is just the nearest quality of a non-deleted base
             }
 
             // Operations 4, 5 and 6 are soft clipping, hard clipping and padding respectively

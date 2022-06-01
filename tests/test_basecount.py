@@ -3,6 +3,7 @@ import math
 import glob
 import pysam
 import pytest
+import itertools
 import numpy as np
 import concurrent.futures
 from basecount import BaseCount
@@ -10,13 +11,22 @@ from basecount import BaseCount
 
 # Put path to directory of BAM files here
 bams_dir = ""
+
 # List of files within the directory that end in .bam
 bams = glob.glob(f'{bams_dir}/*.bam')
+
+# Min base quality and min mapping quality test parameters
+min_base_qualities = [0, 10, 20, 30, 40]
+min_mapping_qualities = [0, 10, 20, 30, 40, 50, 60]
+
+# Test params assembled together
+params = list(itertools.product(bams, min_base_qualities, min_mapping_qualities))
+
 # Max number of workers for getting test data
 num_workers = 8
 
 
-def calculate_ref_region(bam, ref, start, end):
+def calculate_ref_region(bam, ref, start, end, min_base_quality, min_mapping_quality):
     samfile = pysam.AlignmentFile(bam, mode="rb")
     normalising_factor = (1 / math.log2(6)) # Normalises maximum entropy to 1
     secondary_normalising_factor = (1 / math.log2(5)) # Normalises maximum secondary_entropy to 1
@@ -30,12 +40,18 @@ def calculate_ref_region(bam, ref, start, end):
         ref_pos = pileupcolumn.reference_pos # type: ignore
         if start <= ref_pos < end:
             for pileupread in pileupcolumn.pileups: # type: ignore
+                if (pileupread.alignment.mapping_quality < min_mapping_quality):
+                    continue    
                 if not pileupread.is_del and not pileupread.is_refskip:
-                    base_count[ref_pos - start][pileupread.alignment.query_sequence[pileupread.query_position]] += 1
+                    if pileupread.alignment.query_qualities[pileupread.query_position] >= min_base_quality:
+                        base_count[ref_pos - start][pileupread.alignment.query_sequence[pileupread.query_position]] += 1
                 else:
                     base_count[ref_pos - start]['DS'] += 1
 
-            coverage = pileupcolumn.nsegments # type: ignore
+            # TODO: Had to change this to fit with the min base and mapping args, which begs question how should coverage be counted ?
+            # coverage = pileupcolumn.nsegments # type: ignore
+            coverage = sum(base_count[ref_pos - start].values())
+
             if coverage != 0:
                 b_c = list(base_count[ref_pos - start].values())
 
@@ -78,19 +94,19 @@ def calculate_ref_region(bam, ref, start, end):
     return region
 
 
-def get_test_data(bam):    
+def get_test_data(bam, min_base_quality=0, min_mapping_quality=0):    
     samfile = pysam.AlignmentFile(bam, "rb")
     data = {}
 
     for ref in samfile.references:
         ref_len = samfile.lengths[samfile.references.index(ref)]
-        num_reads = len([read for read in samfile.fetch(ref)])
+        num_reads = len([read for read in samfile.fetch(ref) if read.mapping_quality >= min_mapping_quality])
         region_markers = np.linspace(0, ref_len, num=num_workers + 1, dtype=int)
         regions = [(region_markers[i], region_markers[i + 1]) for i in range(len(region_markers) - 1)]
 
         # Count the bases
         with concurrent.futures.ProcessPoolExecutor(max_workers=num_workers) as executor:
-            results = {start : executor.submit(calculate_ref_region, bam, ref, start, end) for start, end in regions}
+            results = {start : executor.submit(calculate_ref_region, bam, ref, start, end, min_base_quality, min_mapping_quality) for start, end in regions}
 
         ref_data = []
         for start, _ in regions:
@@ -101,14 +117,14 @@ def get_test_data(bam):
     return data
 
 
-@pytest.mark.parametrize("bam", bams)
-def test_basecount(bam):
+@pytest.mark.parametrize("bam,mbq,mmq", params)
+def test_basecount(bam, mbq, mmq):
     # Create an index (if it doesn't already exist) in the same dir as the BAM
     if not os.path.isfile(bam + '.bai'):
         pysam.index(bam) # type: ignore
     
-    bc = BaseCount(bam)
-    test_data = get_test_data(bam)
+    bc = BaseCount(bam, min_base_quality=mbq, min_mapping_quality=mmq)
+    test_data = get_test_data(bam, min_base_quality=mbq, min_mapping_quality=mmq)
 
     # Test for matching references
     assert bc.references == list(test_data.keys())
@@ -121,6 +137,8 @@ def test_basecount(bam):
         assert bc.reference_lengths[ref] == len(test_ref_data)
 
         # Test for matching total of reads
+        # Given the other tests, and how this value is calculated, this test is a bit pointless
+        # But no reason not to include it for completion
         assert bc.num_reads(ref) == test_ref_num_reads
 
         # Iterate through rows, comparing each
