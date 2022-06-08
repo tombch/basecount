@@ -13,7 +13,7 @@ ext_modules = [
 setuptools.setup(
     name="basecount",
     author="Thomas Brier",
-    version="1.3.0",
+    version="1.4.0",
     packages=setuptools.find_packages(),
     cmdclass={"build_ext": build_ext},
     ext_modules=ext_modules, # type: ignore

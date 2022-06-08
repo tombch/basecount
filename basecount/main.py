@@ -10,7 +10,7 @@ def get_entropy(probabilities):
     return sum([-(x * math.log2(x)) if x != 0 else 0 for x in probabilities])
 
 
-def get_basecounts(bam, references=None, min_base_quality=0, min_mapping_quality=0, long_format=False):
+def get_basecounts(bam, references=None, min_base_quality=0, min_mapping_quality=0, include_n_bases=False, long_format=False):
     # Temporarily suppress HTSlib's messages when opening the file
     old_verbosity = pysam.set_verbosity(0)
     samfile = pysam.AlignmentFile(bam, mode="rb")
@@ -56,7 +56,14 @@ def get_basecounts(bam, references=None, min_base_quality=0, min_mapping_quality
             raise Exception(f"The number of reads, qualities, starts and ctuples for {ref} do not match")
         ref_data["num_reads"] = len(ref_data["reads"])
 
-    num_bases = 6 # A, C, G, T, DS and N
+    # Order of bases in each output row of the basecount
+    bases = ["A", "C", "G", "T", "DS", "N"]
+    n_index = bases.index("N")
+
+    if not include_n_bases:
+        bases.pop(n_index)
+
+    num_bases = len(bases)
     invalid_percentages = [-1] * num_bases
     normalising_factor = 1 / math.log2(num_bases)
     secondary_normalising_factor = 1 / math.log2(num_bases - 1)
@@ -76,6 +83,9 @@ def get_basecounts(bam, references=None, min_base_quality=0, min_mapping_quality
         # Generate per-position statistics
         ref_data = []
         for reference_pos, base_count in enumerate(base_counts):
+            if not include_n_bases:
+                base_count.pop(n_index)
+            
             # Defaults for when the coverage is zero
             base_percentages = invalid_percentages
             entropy = 1
@@ -97,7 +107,7 @@ def get_basecounts(bam, references=None, min_base_quality=0, min_mapping_quality
             # Create row of basecount data, either in long format or wide format 
             # Wide format is default
             if long_format:
-                for base, count, percentage in zip(["A", "C", "G", "T", "DS", "N"], base_count, base_percentages):
+                for base, count, percentage in zip(bases, base_count, base_percentages):
                     row = []
                     row.append(ref)
                     row.append(reference_pos + 1) # Output one-based coordinates
@@ -129,7 +139,7 @@ def get_basecounts(bam, references=None, min_base_quality=0, min_mapping_quality
 
 
 class BaseCount():
-    def __init__(self, bam, references=None, min_base_quality=0, min_mapping_quality=0, long_format=False):
+    def __init__(self, bam, references=None, min_base_quality=0, min_mapping_quality=0, include_n_bases=False, long_format=False):
         '''
         Generate and store basecount data.
         
@@ -137,7 +147,10 @@ class BaseCount():
 
         * `bam`: path to BAM file to run `basecount` on.
         * `references`: list of references within BAM file to run `basecount` on. If `None`, `basecount` will be run on every reference.
-        * `long_format`: `True`/`False` to determine whether basecount data is stored in long or wide format. Is `False` by default.
+        * `min_base_quality`: minimum quality of a base, for the base to be included in the `basecount` data. Default: `0`.
+        * `min_mapping_quality`: minimum quality of a read mapping, for the read to be included when calculating `basecount` data. Default: `0`.
+        * `include_n_bases`: Display `N` bases from reads, and include in `basecount` statistics. Default: `False`.
+        * `long_format`: `True`/`False` to determine whether `basecount` data is stored in long or wide format. Default: `False`.
         '''
         if long_format:
             self.columns = [
@@ -170,11 +183,15 @@ class BaseCount():
                 "entropy", 
                 "secondary_entropy"
             ]
+            if not include_n_bases:
+                self.columns.pop(self.columns.index("num_n"))
+                self.columns.pop(self.columns.index("pc_n"))
         self.data = get_basecounts(
-            bam, 
+            bam,
             references=references, 
             min_base_quality=min_base_quality, 
-            min_mapping_quality=min_mapping_quality, 
+            min_mapping_quality=min_mapping_quality,
+            include_n_bases=include_n_bases,
             long_format=long_format
         )
         self.references = list(self.data.keys())
@@ -249,6 +266,7 @@ def run():
     parser.add_argument("--bed", default=None, action="append", help="Path to BED file.") 
     parser.add_argument("--min-base-quality", default=None, action="append", help="Default value: 0")
     parser.add_argument("--min-mapping-quality", default=None, action="append", help="Default value: 0")
+    parser.add_argument("--include-n-bases", default=False, action="store_true", help="Display n bases from reads, and include them in statistics.")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--summarise", default=False, action="store_true", help="Output summary stats instead of per-position stats.")
     group.add_argument("--long", default=False, action="store_true", help="Output per-position stats in long format.")
@@ -258,16 +276,17 @@ def run():
     # Handle arguments
     references = handle_arg(args.references, "references")
     bed = handle_arg(args.bed, "bed", provided_once=True)
-    min_base_quality = int(handle_arg(args.min_base_quality, "min-base-quality", default=0, provided_once=True))
-    min_mapping_quality = int(handle_arg(args.min_mapping_quality, "min-mapping-quality", default=0, provided_once=True))
-    dp = int(handle_arg(args.dp, "dp", default=3, provided_once=True))
+    min_base_quality = int(handle_arg(args.min_base_quality, "min-base-quality", default=0, provided_once=True)) # type: ignore
+    min_mapping_quality = int(handle_arg(args.min_mapping_quality, "min-mapping-quality", default=0, provided_once=True)) # type: ignore
+    dp = int(handle_arg(args.dp, "dp", default=3, provided_once=True)) # type: ignore
 
     # Generate the data
     bc = BaseCount(
         args.bam,
         references=references,
         min_base_quality=min_base_quality, 
-        min_mapping_quality=min_mapping_quality, 
+        min_mapping_quality=min_mapping_quality,
+        include_n_bases=args.include_n_bases, 
         long_format=args.long
     )
 
