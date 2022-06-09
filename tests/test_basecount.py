@@ -123,7 +123,7 @@ def test_basecount(bam, mbq, mmq):
     if not os.path.isfile(bam + '.bai'):
         pysam.index(bam) # type: ignore
     
-    bc = BaseCount(bam, min_base_quality=mbq, min_mapping_quality=mmq, include_n_bases=True)
+    bc = BaseCount(bam, min_base_quality=mbq, min_mapping_quality=mmq, show_n_bases=True)
     test_data = get_test_data(bam, min_base_quality=mbq, min_mapping_quality=mmq)
 
     # Test for matching references

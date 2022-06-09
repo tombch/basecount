@@ -10,20 +10,9 @@ $ pip install .
 
 ### Usage
 
-#### View all options
-```
-$ basecount --help
-```
-
-#### Per-position stats:
-**All references**
+#### Per-position statistics:
 ```
 $ basecount BAM_FILE
-```
-
-**Selected references**
-```
-$ basecount BAM_FILE --references REF_NAME_1 REF_NAME_2 ... 
 ```
 
 Example output:
@@ -71,44 +60,44 @@ XXXXXXXXXX  39        1485      1483   0      2      0      0       99.865  0.0 
 :
 ```
 
-#### Summary stats:
+#### Summary statistics:
 ```
 $ basecount BAM_FILE --summarise
 ```
 
 Example output:
 ```
-reference                             XXXXXXXXXX
-reference_length                      29903
-num_reads                             123901
-pc_reference_coverage                 99.057
-avg_depth                             1649.805
-avg_entropy                           0.116
-mean_coverage_tile_vector             -
-median_coverage_tile_vector           -
-mean_entropy_tile_vector              -
-median_entropy_tile_vector            -
-mean_secondary_entropy_tile_vector    -
-median_secondary_entropy_tile_vector  -
+reference_name         XXXXXXXXXX
+reference_length       29903
+num_reads              123901
+pc_reference_coverage  99.057
+avg_depth              1649.805
+avg_entropy            0.116
 ```
 
-#### Summary stats (with BED file):
+#### Summary statistics (with BED file):
 ```
-$ basecount BAM_FILE --bed BED_FILE --summarise
+$ basecount BAM_FILE --summarise-with-bed BED_FILE
 ```
 
 Example output:
 ```
-reference                             XXXXXXXXXX
-reference_length                      29903
-num_reads                             123901
-pc_reference_coverage                 99.057
-avg_depth                             1649.805
-avg_entropy                           0.116
-mean_coverage_tile_vector             243.906, 1229.481, 1729.518, 2711.367, 1346.401, 3041.555, 1309.193, 143.864, 1494.996, 420.83..
-median_coverage_tile_vector           138.0, 1219.0, 1725.0, 2582.0, 678.0, 2932.0, 1309.0, 13.0, 1496.0, 16.0, 1471.0, 1644.0, 9.0,..
-mean_entropy_tile_vector              0.107, 0.116, 0.127, 0.118, 0.113, 0.111, 0.11, 0.077, 0.12, 0.071, 0.105, 0.119, 0.088, 0.147..
-median_entropy_tile_vector            0.094, 0.104, 0.112, 0.102, 0.108, 0.101, 0.104, 0.0, 0.113, 0.013, 0.093, 0.111, 0.022, 0.143..
-mean_secondary_entropy_tile_vector    0.437, 0.724, 0.702, 0.724, 0.69, 0.714, 0.709, 0.666, 0.713, 0.685, 0.735, 0.724, 0.666, 0.69..
-median_secondary_entropy_tile_vector  0.485, 0.739, 0.714, 0.749, 0.729, 0.746, 0.736, 1.0, 0.737, 0.899, 0.753, 0.736, 0.953, 0.727..
+reference_name                            XXXXXXXXXX
+reference_length                          29903
+num_reads                                 123901
+pc_reference_coverage                     99.057
+avg_depth                                 1649.805
+avg_entropy                               0.116
+mean_coverage_amplicon_vector             243.906, 1229.481, 1729.518, 2711.367, 1346.401, 3041.555, 1309.193, 143.864, 1494.996, 42..
+median_coverage_amplicon_vector           138.0, 1219.0, 1725.0, 2582.0, 678.0, 2932.0, 1309.0, 13.0, 1496.0, 16.0, 1471.0, 1644.0, ..
+mean_entropy_amplicon_vector              0.107, 0.116, 0.127, 0.118, 0.113, 0.111, 0.11, 0.077, 0.12, 0.071, 0.105, 0.119, 0.088, 0..
+median_entropy_amplicon_vector            0.094, 0.104, 0.112, 0.102, 0.108, 0.101, 0.104, 0.0, 0.113, 0.013, 0.093, 0.111, 0.022, 0..
+mean_secondary_entropy_amplicon_vector    0.437, 0.724, 0.702, 0.724, 0.69, 0.714, 0.709, 0.666, 0.713, 0.685, 0.735, 0.724, 0.666, ..
+median_secondary_entropy_amplicon_vector  0.485, 0.739, 0.714, 0.749, 0.729, 0.746, 0.736, 1.0, 0.737, 0.899, 0.753, 0.736, 0.953, 0..
+```
+
+#### View all options:
+
+```
+$ basecount --help
 ```

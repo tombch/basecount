@@ -4,13 +4,14 @@ import argparse
 import numpy as np
 from count import bcount
 from basecount.scheme import load_scheme
+from basecount.version import __version__
 
 
 def get_entropy(probabilities):
     return sum([-(x * math.log2(x)) if x != 0 else 0 for x in probabilities])
 
 
-def get_basecounts(bam, references=None, min_base_quality=0, min_mapping_quality=0, include_n_bases=False, long_format=False):
+def get_basecounts(bam, references=None, min_base_quality=0, min_mapping_quality=0, show_n_bases=False, long_format=False):
     # Temporarily suppress HTSlib's messages when opening the file
     old_verbosity = pysam.set_verbosity(0)
     samfile = pysam.AlignmentFile(bam, mode="rb")
@@ -60,7 +61,7 @@ def get_basecounts(bam, references=None, min_base_quality=0, min_mapping_quality
     bases = ["A", "C", "G", "T", "DS", "N"]
     n_index = bases.index("N")
 
-    if not include_n_bases:
+    if not show_n_bases:
         bases.pop(n_index)
 
     num_bases = len(bases)
@@ -83,7 +84,7 @@ def get_basecounts(bam, references=None, min_base_quality=0, min_mapping_quality
         # Generate per-position statistics
         ref_data = []
         for reference_pos, base_count in enumerate(base_counts):
-            if not include_n_bases:
+            if not show_n_bases:
                 base_count.pop(n_index)
             
             # Defaults for when the coverage is zero
@@ -139,17 +140,17 @@ def get_basecounts(bam, references=None, min_base_quality=0, min_mapping_quality
 
 
 class BaseCount():
-    def __init__(self, bam, references=None, min_base_quality=0, min_mapping_quality=0, include_n_bases=False, long_format=False):
+    def __init__(self, bam, references=None, min_base_quality=0, min_mapping_quality=0, show_n_bases=False, long_format=False):
         '''
         Generate and store basecount data.
         
         Arguments:
 
-        * `bam`: path to BAM file to run `basecount` on.
-        * `references`: list of references within BAM file to run `basecount` on. If `None`, `basecount` will be run on every reference.
-        * `min_base_quality`: minimum quality of a base, for the base to be included in the `basecount` data. Default: `0`.
-        * `min_mapping_quality`: minimum quality of a read mapping, for the read to be included when calculating `basecount` data. Default: `0`.
-        * `include_n_bases`: Display `N` bases from reads, and include in `basecount` statistics. Default: `False`.
+        * `bam`: Path to BAM file (an index file is not required).
+        * `references`: List of specific references to run basecount on. If `None`, `basecount` will be run on every reference.
+        * `min_base_quality`: Minimum quality of a base, for the base to be included in the `basecount` data. Default: `0`.
+        * `min_mapping_quality`: Minimum quality of a read mapping, for the read to be included in the `basecount` data. Default: `0`.
+        * `show_n_bases`: Show counts of `N` bases from reads, and include them in statistics. Default: `False`.
         * `long_format`: `True`/`False` to determine whether `basecount` data is stored in long or wide format. Default: `False`.
         '''
         if long_format:
@@ -183,7 +184,7 @@ class BaseCount():
                 "entropy", 
                 "secondary_entropy"
             ]
-            if not include_n_bases:
+            if not show_n_bases:
                 self.columns.pop(self.columns.index("num_n"))
                 self.columns.pop(self.columns.index("pc_n"))
         self.data = get_basecounts(
@@ -191,7 +192,7 @@ class BaseCount():
             references=references, 
             min_base_quality=min_base_quality, 
             min_mapping_quality=min_mapping_quality,
-            include_n_bases=include_n_bases,
+            show_n_bases=show_n_bases,
             long_format=long_format
         )
         self.references = list(self.data.keys())
@@ -261,24 +262,28 @@ def handle_arg(arg, name, default=None, provided_once=False):
 
 def run():
     parser = argparse.ArgumentParser()
-    parser.add_argument("bam", help="Path to BAM file.")
-    parser.add_argument("--references", default=None, nargs="+", action="append", help="Reference name(s).")
-    parser.add_argument("--bed", default=None, action="append", help="Path to BED file.") 
+    parser.add_argument("bam", help="Path to BAM file (an index file is not required)")
+    parser.add_argument("-v", "--version", action="version", version=__version__)
+    parser.add_argument("--references", default=None, nargs="+", action="append", help="Choose specific reference(s) to run basecount on")
     parser.add_argument("--min-base-quality", default=None, action="append", help="Default value: 0")
     parser.add_argument("--min-mapping-quality", default=None, action="append", help="Default value: 0")
-    parser.add_argument("--include-n-bases", default=False, action="store_true", help="Display n bases from reads, and include them in statistics.")
+    parser.add_argument("--show-n-bases", default=False, action="store_true", help="Show counts of 'N' bases from reads, and include them in statistics")
+
     group = parser.add_mutually_exclusive_group()
-    group.add_argument("--summarise", default=False, action="store_true", help="Output summary stats instead of per-position stats.")
-    group.add_argument("--long", default=False, action="store_true", help="Output per-position stats in long format.")
-    parser.add_argument("--dp", default=None, action="append", help="Default value: 3")
+    group.add_argument("--long-format", default=False, action="store_true", help="Output per-position statistics in long format, instead of the default wide format")
+    group.add_argument("--summarise", default=False, action="store_true", help="Output summary statistics")
+    group.add_argument("--summarise-with-bed", default=None, action="append", metavar="BED_FILE", help="Output summary statistics and amplicon vectors (calculated using the provided BED file)")
+    
+    parser.add_argument("--decimal-places", default=None, action="append", help="Default value: 3")
+    
     args = parser.parse_args()
 
     # Handle arguments
     references = handle_arg(args.references, "references")
-    bed = handle_arg(args.bed, "bed", provided_once=True)
     min_base_quality = int(handle_arg(args.min_base_quality, "min-base-quality", default=0, provided_once=True)) # type: ignore
     min_mapping_quality = int(handle_arg(args.min_mapping_quality, "min-mapping-quality", default=0, provided_once=True)) # type: ignore
-    dp = int(handle_arg(args.dp, "dp", default=3, provided_once=True)) # type: ignore
+    bed = handle_arg(args.summarise_with_bed, "bed", provided_once=True)
+    decimal_places = int(handle_arg(args.decimal_places, "decimal_places", default=3, provided_once=True)) # type: ignore
 
     # Generate the data
     bc = BaseCount(
@@ -286,14 +291,15 @@ def run():
         references=references,
         min_base_quality=min_base_quality, 
         min_mapping_quality=min_mapping_quality,
-        include_n_bases=args.include_n_bases, 
-        long_format=args.long
+        show_n_bases=args.show_n_bases, 
+        long_format=args.long_format
     )
 
-    if not args.summarise:
+    if (not args.summarise) and (bed is None):
+        # Display per-position statistics
         print("\t".join(bc.columns))
         for row in bc.rows():
-            print("\t".join([str(round(x, dp)) if not isinstance(x, str) else x for x in row]), sep="\t")
+            print("\t".join([str(round(x, decimal_places)) if not isinstance(x, str) else x for x in row]), sep="\t")
     else:
         # Generate summary statistics        
         for ref in bc.references:
@@ -312,70 +318,76 @@ def run():
             ref_length = bc.reference_lengths[ref]
             pc_ref_coverage = 100 * (len([cov for cov in coverages if cov != 0]) / ref_length)
             
-            if bed is not None:
-                scheme = load_scheme(bed)
-                tile_starts = [tile[2]["inside_start"] for tile in scheme]
-                tile_ends = [tile[2]["inside_end"] for tile in scheme]
-            else:
-                scheme = tile_starts = tile_ends = []
-
-            # Create tile vectors
-            coverage_data = [[] for _ in scheme]
-            mean_coverage_vector = []
-            median_coverage_vector = []
-
-            entropy_data = [[] for _ in scheme]
-            mean_entropy_vector = []
-            median_entropy_vector = []
-            
-            secondary_entropy_data = [[] for _ in scheme]
-            mean_secondary_entropy_vector = []
-            median_secondary_entropy_vector = []
-
-            for i, (start, end) in enumerate(zip(tile_starts, tile_ends)):
-                for j, (coverage, entropy, secondary_entropy) in enumerate(zip(coverages, entropies, secondary_entropies)):
-                    if start <= j <= end:
-                        coverage_data[i].append(coverage)
-                        entropy_data[i].append(entropy)
-                        secondary_entropy_data[i].append(secondary_entropy)
-                
-                if coverage_data[i]:
-                    mean_coverage_vector.append(np.mean(coverage_data[i]))
-                    median_coverage_vector.append(np.median(coverage_data[i]))
-                else:
-                    mean_coverage_vector.append(-1)
-                    median_coverage_vector.append(-1)  
-  
-                if entropy_data[i]:
-                    mean_entropy_vector.append(np.mean(entropy_data[i]))
-                    median_entropy_vector.append(np.median(entropy_data[i]))
-                else:
-                    mean_entropy_vector.append(-1)
-                    median_entropy_vector.append(-1)
-
-                if secondary_entropy_data[i]:
-                    mean_secondary_entropy_vector.append(np.mean(secondary_entropy_data[i]))
-                    median_secondary_entropy_vector.append(np.median(secondary_entropy_data[i]))
-                else:
-                    mean_secondary_entropy_vector.append(-1)
-                    median_secondary_entropy_vector.append(-1)
-                
             # Format summary statistics
             summary_stats = {
-                "reference" : ref,
-                "reference_length" : round(ref_length, dp),
-                "num_reads" : round(bc.num_reads(ref), dp),
-                "pc_reference_coverage" : round(pc_ref_coverage, dp),
-                "avg_depth" : round(avg_coverage, dp),
-                "avg_entropy" : round(avg_entropies, dp),
-                "mean_coverage_tile_vector" : ", ".join([str(round(x, dp)) for x in mean_coverage_vector]) if mean_coverage_vector else "-",
-                "median_coverage_tile_vector" : ", ".join([str(round(x, dp)) for x in median_coverage_vector]) if median_coverage_vector else "-",
-                "mean_entropy_tile_vector" : ", ".join([str(round(x, dp)) for x in mean_entropy_vector]) if mean_entropy_vector else "-",
-                "median_entropy_tile_vector" : ", ".join([str(round(x, dp)) for x in median_entropy_vector]) if median_entropy_vector else "-",
-                "mean_secondary_entropy_tile_vector" : ", ".join([str(round(x, dp)) for x in mean_secondary_entropy_vector]) if mean_secondary_entropy_vector else "-",
-                "median_secondary_entropy_tile_vector" : ", ".join([str(round(x, dp)) for x in median_secondary_entropy_vector]) if median_secondary_entropy_vector else "-"
+                "reference_name" : ref,
+                "reference_length" : round(ref_length, decimal_places),
+                "num_reads" : round(bc.num_reads(ref), decimal_places),
+                "pc_reference_coverage" : round(pc_ref_coverage, decimal_places),
+                "avg_depth" : round(avg_coverage, decimal_places),
+                "avg_entropy" : round(avg_entropies, decimal_places),
             }
 
             # Display summary statistics
             for name, val in summary_stats.items():
                 print(name, val, sep="\t")
+
+            if bed is not None:
+                scheme = load_scheme(bed)
+                tile_starts = [tile[2]["inside_start"] for tile in scheme]
+                tile_ends = [tile[2]["inside_end"] for tile in scheme]
+
+                # Generate amplicon vectors
+                coverage_data = [[] for _ in scheme]
+                mean_coverage_vector = []
+                median_coverage_vector = []
+
+                entropy_data = [[] for _ in scheme]
+                mean_entropy_vector = []
+                median_entropy_vector = []
+                
+                secondary_entropy_data = [[] for _ in scheme]
+                mean_secondary_entropy_vector = []
+                median_secondary_entropy_vector = []
+
+                for i, (start, end) in enumerate(zip(tile_starts, tile_ends)):
+                    for j, (coverage, entropy, secondary_entropy) in enumerate(zip(coverages, entropies, secondary_entropies)):
+                        if start <= j <= end:
+                            coverage_data[i].append(coverage)
+                            entropy_data[i].append(entropy)
+                            secondary_entropy_data[i].append(secondary_entropy)
+                    
+                    if coverage_data[i]:
+                        mean_coverage_vector.append(np.mean(coverage_data[i]))
+                        median_coverage_vector.append(np.median(coverage_data[i]))
+                    else:
+                        mean_coverage_vector.append(-1)
+                        median_coverage_vector.append(-1)  
+    
+                    if entropy_data[i]:
+                        mean_entropy_vector.append(np.mean(entropy_data[i]))
+                        median_entropy_vector.append(np.median(entropy_data[i]))
+                    else:
+                        mean_entropy_vector.append(-1)
+                        median_entropy_vector.append(-1)
+
+                    if secondary_entropy_data[i]:
+                        mean_secondary_entropy_vector.append(np.mean(secondary_entropy_data[i]))
+                        median_secondary_entropy_vector.append(np.median(secondary_entropy_data[i]))
+                    else:
+                        mean_secondary_entropy_vector.append(-1)
+                        median_secondary_entropy_vector.append(-1)
+                
+                # Format amplicon vectors
+                amplicon_vectors = {
+                    "mean_coverage_amplicon_vector" : ", ".join([str(round(x, decimal_places)) for x in mean_coverage_vector]) if mean_coverage_vector else "-",
+                    "median_coverage_amplicon_vector" : ", ".join([str(round(x, decimal_places)) for x in median_coverage_vector]) if median_coverage_vector else "-",
+                    "mean_entropy_amplicon_vector" : ", ".join([str(round(x, decimal_places)) for x in mean_entropy_vector]) if mean_entropy_vector else "-",
+                    "median_entropy_amplicon_vector" : ", ".join([str(round(x, decimal_places)) for x in median_entropy_vector]) if median_entropy_vector else "-",
+                    "mean_secondary_entropy_amplicon_vector" : ", ".join([str(round(x, decimal_places)) for x in mean_secondary_entropy_vector]) if mean_secondary_entropy_vector else "-",
+                    "median_secondary_entropy_amplicon_vector" : ", ".join([str(round(x, decimal_places)) for x in median_secondary_entropy_vector]) if median_secondary_entropy_vector else "-"
+                }
+
+                # Display amplicon vectors
+                for name, val in amplicon_vectors.items():
+                    print(name, val, sep="\t")

@@ -9,11 +9,12 @@ ext_modules = [
     )
 ]
 
+exec(open('basecount/version.py').read())
 
 setuptools.setup(
     name="basecount",
     author="Thomas Brier",
-    version="1.4.1",
+    version=__version__, # type: ignore
     packages=setuptools.find_packages(),
     cmdclass={"build_ext": build_ext},
     ext_modules=ext_modules, # type: ignore
