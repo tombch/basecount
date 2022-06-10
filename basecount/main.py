@@ -234,7 +234,7 @@ class BaseCount():
         '''
         Returns the total number of reads, across all references.
 
-        If a reference is given, returns the total number of reads just for that reference.
+        If a `reference` is given, returns the total number of reads just for that reference.
         '''
         if reference is None:
             return sum([self.data[ref]["num_reads"] for ref in self.references])
@@ -243,6 +243,42 @@ class BaseCount():
                 raise Exception(f"{reference} is not a valid reference")
             return self.data[reference]["num_reads"]
 
+    def mean_coverage(self, reference=None):
+        '''
+        Returns the mean coverage across all positions, across all references.
+
+        If a `reference` is given, returns the average coverage across all positions of that reference only.
+        '''
+        coverages = []
+        if reference is None:
+            for record in self.records():
+                coverages.append(record["coverage"])
+        else:
+            if self.data.get(reference) is None:
+                raise Exception(f"{reference} is not a valid reference")
+            for record in self.records(reference=reference):
+                coverages.append(record["coverage"])
+        return np.mean(coverages)
+
+    def mean_entropy(self, reference=None, min_coverage=0):
+        '''
+        Returns the mean entropy across all positions, across all references.
+
+        If a `reference` is given, returns the average entropy across all positions of that reference only.
+        '''
+        entropies = []
+        if reference is None:
+            for record in self.records():
+                if record["coverage"] >= min_coverage:
+                    entropies.append(record["entropy"])
+        else:
+            if self.data.get(reference) is None:
+                raise Exception(f"{reference} is not a valid reference")
+            for record in self.records(reference=reference):
+                if record["coverage"] >= min_coverage:
+                    entropies.append(record["entropy"])
+        return np.mean(entropies)
+    
 
 def handle_arg(arg, name, default=None, provided_once=False):
     if arg is None:
