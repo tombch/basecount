@@ -6,6 +6,7 @@ import pytest
 import itertools
 import numpy as np
 import concurrent.futures
+from count import bcount
 from basecount import BaseCount
 
 
@@ -117,6 +118,155 @@ def get_test_data(bam, min_base_quality=0, min_mapping_quality=0):
     return data
 
 
+def get_entropy(probabilities):
+    return sum([-(x * math.log2(x)) if x != 0 else 0 for x in probabilities])
+
+
+def get_stats(base_counts, ref, show_n_bases=False, long_format=False):
+    # Order of bases in each output row of the basecount
+    bases = ["A", "C", "G", "T", "DS", "N"]
+    n_index = bases.index("N")
+
+    if not show_n_bases:
+        bases.pop(n_index)
+
+    num_bases = len(bases)
+    invalid_percentages = [-1] * num_bases
+    normalising_factor = 1 / math.log2(num_bases)
+    secondary_normalising_factor = 1 / math.log2(num_bases - 1)
+
+    # Generate per-position statistics
+    data = []
+    for reference_pos, base_count in enumerate(base_counts):
+        if not show_n_bases:
+            base_count.pop(n_index)
+        
+        # Defaults for when the coverage is zero
+        base_percentages = invalid_percentages
+        entropy = 1
+        secondary_entropy = 1
+        coverage = sum(base_count)
+
+        if coverage != 0:
+            base_probabilities = [count / coverage for count in base_count]
+            base_percentages = [100 * probability for probability in base_probabilities]
+            entropy = normalising_factor * get_entropy(base_probabilities)
+
+            secondary_base_count = list(base_count)
+            secondary_base_count.pop(np.argmax(base_count))
+            secondary_coverage = sum(secondary_base_count)
+            if secondary_coverage != 0:
+                secondary_base_probabilities = [count / secondary_coverage for count in secondary_base_count]
+                secondary_entropy = secondary_normalising_factor * get_entropy(secondary_base_probabilities)
+
+        # Create row of basecount data, either in long format or wide format 
+        # Wide format is default
+        if long_format:
+            for base, count, percentage in zip(bases, base_count, base_percentages):
+                row = []
+                row.append(ref)
+                row.append(reference_pos + 1) # Output one-based coordinates
+                row.append(coverage)
+                row.append(base)
+                row.append(count)
+                row.append(percentage)
+                row.append(entropy)
+                row.append(secondary_entropy)
+                data.append(row)
+        else:
+            row = []
+            row.append(ref)
+            row.append(reference_pos + 1) # Output one-based coordinates
+            row.append(coverage)
+            row.extend(base_count)
+            row.extend(base_percentages)
+            row.append(entropy)
+            row.append(secondary_entropy)
+            data.append(row)
+    
+    return data
+
+
+def get_references(samfile, references=None):
+    # Determine which references will be covered
+    if references is None:
+        # Calculate data on all references by default
+        references = samfile.references
+    else:
+        # If references are provided, determine their validity
+        for reference in references:
+            if not (reference in samfile.references):
+                raise Exception(f"{reference} is not a valid reference")
+    return set(references)
+
+
+def open_samfile(bam):
+    # Temporarily suppress HTSlib's messages when opening the file
+    old_verbosity = pysam.set_verbosity(0)
+    samfile = pysam.AlignmentFile(bam, mode="rb")
+    pysam.set_verbosity(old_verbosity)
+    return samfile
+
+
+def get_basecounts(bam, references=None, min_base_quality=0, min_mapping_quality=0, show_n_bases=False, long_format=False):
+    samfile = open_samfile(bam)
+    references = get_references(samfile, references)
+
+    # Iterator through all reads in the file (including unmapped)
+    all_reads = samfile.fetch(until_eof=True) 
+    
+    # Prepare read_data structure
+    read_data = {}
+    for ref in references:
+        read_data[ref] = {}
+        read_data[ref]["ref_len"] = samfile.lengths[samfile.references.index(ref)]
+        read_data[ref]["reads"] = []
+        read_data[ref]["qualities"] = []
+        read_data[ref]["starts"] = []
+        read_data[ref]["ctuples"] = []
+
+    # Filter for mapped reads, storing each read's sequence, start and ctuples
+    for read in all_reads:
+        if (not read.is_unmapped) and (read.mapping_quality >= min_mapping_quality):
+            ref = read.reference_name
+            if ref in references:
+                read_data[ref]["reads"].append(read.query_alignment_sequence)
+                read_data[ref]["qualities"].append(read.query_alignment_qualities)
+                read_data[ref]["starts"].append(read.reference_start)
+                read_data[ref]["ctuples"].append(read.cigartuples)
+        
+    # For each reference, verify the read data and calculate num_reads
+    for ref, ref_data in read_data.items():
+        if len({len(ref_data[x]) for x in ["reads", "qualities", "starts", "ctuples"]}) != 1:
+            raise Exception(f"The number of reads, qualities, starts and ctuples for {ref} do not match")
+        ref_data["num_reads"] = len(ref_data["reads"])
+
+    basecount_data = {}    
+    for ref in references:
+        # Count the bases
+        base_counts = bcount(
+            read_data[ref]["ref_len"],
+            min_base_quality,
+            read_data[ref]["reads"],
+            read_data[ref]["qualities"],
+            read_data[ref]["starts"],
+            read_data[ref]["ctuples"]
+        )
+            
+        basecount_data[ref] = {
+            "rows" : get_stats(
+                    base_counts,
+                    ref,
+                    show_n_bases=show_n_bases,
+                    long_format=long_format
+                ), 
+            "num_reads" : read_data[ref]["num_reads"]
+        }
+
+    samfile.close()
+    return basecount_data
+
+
 # @pytest.mark.parametrize("bam,mbq,mmq", params)
 # def test_basecount(bam, mbq, mmq):
 #     # Create an index (if it doesn't already exist) in the same dir as the BAM
@@ -147,27 +297,27 @@ def get_test_data(bam, min_base_quality=0, min_mapping_quality=0):
 
 
 @pytest.mark.parametrize("bam,mbq,mmq", params)
-def test_basecount_low_memory(bam, mbq, mmq):
+def test_basecount_old(bam, mbq, mmq):
     # Create an index (if it doesn't already exist) in the same dir as the BAM
     if not os.path.isfile(bam + '.bai'):
         pysam.index(bam) # type: ignore
     
     bc = BaseCount(bam, min_base_quality=mbq, min_mapping_quality=mmq, show_n_bases=True)
-    bc_low_mem = BaseCount(bam, min_base_quality=mbq, min_mapping_quality=mmq, show_n_bases=True, low_memory=True)
+    bc_old = get_basecounts(bam, references=None, min_base_quality=mbq, min_mapping_quality=mmq, show_n_bases=True)
 
     # Test for matching references
-    assert bc.references == bc_low_mem.references
+    assert bc.references == list(bc_old.keys())
 
     # Compare the data for each reference
     for ref in bc.references:
         # Test for matching reference lengths
-        assert bc.reference_lengths[ref] == bc_low_mem.reference_lengths[ref]
+        assert bc.reference_lengths[ref] == len(bc_old[ref]["rows"])
 
         # Test for matching total of reads
         # Given the other tests, and how this value is calculated, this test is a bit pointless
         # But no reason not to include it for completion
-        assert bc.num_reads(ref) == bc_low_mem.num_reads(ref)
+        assert bc.num_reads(ref) == bc_old[ref]["num_reads"]
 
         # Iterate through rows, comparing each
-        for bc_row, test_row in zip(bc.rows(ref), bc_low_mem.rows(ref)):
+        for bc_row, test_row in zip(bc.rows(ref), bc_old[ref]["rows"]):
             assert bc_row == test_row
