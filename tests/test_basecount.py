@@ -10,11 +10,8 @@ from count import bcount
 from basecount import BaseCount
 
 
-# Put path to directory of BAM files here
-bams_dir = "/home/tom/git/samples/"
-
-# List of files within the directory that end in .bam
-bams = glob.glob(f"{bams_dir}/*.bam")
+# List of bam files
+bams = glob.glob("/your/bam/dir/*.bam")
 
 # Min base quality and min mapping quality test parameters
 min_base_qualities = [0, 10, 20, 30, 40]
@@ -22,10 +19,6 @@ min_mapping_qualities = [0, 10, 20, 30, 40, 50, 60]
 
 # Test params assembled together
 params = list(itertools.product(bams, min_base_qualities, min_mapping_qualities))
-
-# Max number of workers for getting test data
-num_workers = 8
-
 
 def calculate_ref_region(bam, ref, start, end, min_base_quality, min_mapping_quality):
     samfile = pysam.AlignmentFile(bam, mode="rb")
@@ -95,7 +88,10 @@ def calculate_ref_region(bam, ref, start, end, min_base_quality, min_mapping_qua
     return region
 
 
-def get_test_data(bam, min_base_quality=0, min_mapping_quality=0):    
+def get_test_data(bam, min_base_quality=0, min_mapping_quality=0):
+    # Max number of workers for getting test data
+    num_workers = 8
+
     samfile = pysam.AlignmentFile(bam, "rb")
     data = {}
 
@@ -267,7 +263,7 @@ def get_basecounts(bam, references=None, min_base_quality=0, min_mapping_quality
     return basecount_data
 
 
-# @pytest.mark.parametrize("bam,mbq,mmq", params)
+# @pytest.mark.parametrize("bam,mbq,mmq", get_params())
 # def test_basecount(bam, mbq, mmq):
 #     # Create an index (if it doesn't already exist) in the same dir as the BAM
 #     if not os.path.isfile(bam + '.bai'):
