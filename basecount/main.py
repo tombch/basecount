@@ -11,12 +11,72 @@ def get_entropy(probabilities):
     return sum([-(x * math.log2(x)) if x != 0 else 0 for x in probabilities])
 
 
-def get_basecounts(bam, references=None, min_base_quality=0, min_mapping_quality=0, show_n_bases=False, long_format=False):
-    # Temporarily suppress HTSlib's messages when opening the file
-    old_verbosity = pysam.set_verbosity(0)
-    samfile = pysam.AlignmentFile(bam, mode="rb")
-    pysam.set_verbosity(old_verbosity) 
+def get_stats(base_counts, ref, show_n_bases=False, long_format=False):
+    # Order of bases in each output row of the basecount
+    bases = ["A", "C", "G", "T", "DS", "N"]
+    n_index = bases.index("N")
 
+    if not show_n_bases:
+        bases.pop(n_index)
+
+    num_bases = len(bases)
+    invalid_percentages = [-1] * num_bases
+    normalising_factor = 1 / math.log2(num_bases)
+    secondary_normalising_factor = 1 / math.log2(num_bases - 1)
+
+    # Generate per-position statistics
+    data = []
+    for reference_pos, base_count in enumerate(base_counts):
+        if not show_n_bases:
+            base_count.pop(n_index)
+        
+        # Defaults for when the coverage is zero
+        base_percentages = invalid_percentages
+        entropy = 1
+        secondary_entropy = 1
+        coverage = sum(base_count)
+
+        if coverage != 0:
+            base_probabilities = [count / coverage for count in base_count]
+            base_percentages = [100 * probability for probability in base_probabilities]
+            entropy = normalising_factor * get_entropy(base_probabilities)
+
+            secondary_base_count = list(base_count)
+            secondary_base_count.pop(np.argmax(base_count))
+            secondary_coverage = sum(secondary_base_count)
+            if secondary_coverage != 0:
+                secondary_base_probabilities = [count / secondary_coverage for count in secondary_base_count]
+                secondary_entropy = secondary_normalising_factor * get_entropy(secondary_base_probabilities)
+
+        # Create row of basecount data, either in long format or wide format 
+        # Wide format is default
+        if long_format:
+            for base, count, percentage in zip(bases, base_count, base_percentages):
+                row = []
+                row.append(ref)
+                row.append(reference_pos + 1) # Output one-based coordinates
+                row.append(coverage)
+                row.append(base)
+                row.append(count)
+                row.append(percentage)
+                row.append(entropy)
+                row.append(secondary_entropy)
+                data.append(row)
+        else:
+            row = []
+            row.append(ref)
+            row.append(reference_pos + 1) # Output one-based coordinates
+            row.append(coverage)
+            row.extend(base_count)
+            row.extend(base_percentages)
+            row.append(entropy)
+            row.append(secondary_entropy)
+            data.append(row)
+    
+    return data
+
+
+def get_references(samfile, references=None):
     # Determine which references will be covered
     if references is None:
         # Calculate data on all references by default
@@ -26,7 +86,20 @@ def get_basecounts(bam, references=None, min_base_quality=0, min_mapping_quality
         for reference in references:
             if not (reference in samfile.references):
                 raise Exception(f"{reference} is not a valid reference")
-    references = set(references)
+    return set(references)
+
+
+def open_samfile(bam):
+    # Temporarily suppress HTSlib's messages when opening the file
+    old_verbosity = pysam.set_verbosity(0)
+    samfile = pysam.AlignmentFile(bam, mode="rb")
+    pysam.set_verbosity(old_verbosity)
+    return samfile
+
+
+def get_basecounts(bam, references=None, min_base_quality=0, min_mapping_quality=0, show_n_bases=False, long_format=False):
+    samfile = open_samfile(bam)
+    references = get_references(samfile, references)
 
     # Iterator through all reads in the file (including unmapped)
     all_reads = samfile.fetch(until_eof=True) 
@@ -57,19 +130,7 @@ def get_basecounts(bam, references=None, min_base_quality=0, min_mapping_quality
             raise Exception(f"The number of reads, qualities, starts and ctuples for {ref} do not match")
         ref_data["num_reads"] = len(ref_data["reads"])
 
-    # Order of bases in each output row of the basecount
-    bases = ["A", "C", "G", "T", "DS", "N"]
-    n_index = bases.index("N")
-
-    if not show_n_bases:
-        bases.pop(n_index)
-
-    num_bases = len(bases)
-    invalid_percentages = [-1] * num_bases
-    normalising_factor = 1 / math.log2(num_bases)
-    secondary_normalising_factor = 1 / math.log2(num_bases - 1)
-    basecount_data = {}
-    
+    basecount_data = {}    
     for ref in references:
         # Count the bases
         base_counts = bcount(
@@ -80,58 +141,14 @@ def get_basecounts(bam, references=None, min_base_quality=0, min_mapping_quality
             read_data[ref]["starts"],
             read_data[ref]["ctuples"]
         )
-
-        # Generate per-position statistics
-        ref_data = []
-        for reference_pos, base_count in enumerate(base_counts):
-            if not show_n_bases:
-                base_count.pop(n_index)
-            
-            # Defaults for when the coverage is zero
-            base_percentages = invalid_percentages
-            entropy = 1
-            secondary_entropy = 1
-            coverage = sum(base_count)
-
-            if coverage != 0:
-                base_probabilities = [count / coverage for count in base_count]
-                base_percentages = [100 * probability for probability in base_probabilities]
-                entropy = normalising_factor * get_entropy(base_probabilities)
-
-                secondary_base_count = list(base_count)
-                secondary_base_count.pop(np.argmax(base_count))
-                secondary_coverage = sum(secondary_base_count)
-                if secondary_coverage != 0:
-                    secondary_base_probabilities = [count / secondary_coverage for count in secondary_base_count]
-                    secondary_entropy = secondary_normalising_factor * get_entropy(secondary_base_probabilities)
-
-            # Create row of basecount data, either in long format or wide format 
-            # Wide format is default
-            if long_format:
-                for base, count, percentage in zip(bases, base_count, base_percentages):
-                    row = []
-                    row.append(ref)
-                    row.append(reference_pos + 1) # Output one-based coordinates
-                    row.append(coverage)
-                    row.append(base)
-                    row.append(count)
-                    row.append(percentage)
-                    row.append(entropy)
-                    row.append(secondary_entropy)
-                    ref_data.append(row)
-            else:
-                row = []
-                row.append(ref)
-                row.append(reference_pos + 1) # Output one-based coordinates
-                row.append(coverage)
-                row.extend(base_count)
-                row.extend(base_percentages)
-                row.append(entropy)
-                row.append(secondary_entropy)
-                ref_data.append(row)
             
         basecount_data[ref] = {
-            "rows" : ref_data, 
+            "rows" : get_stats(
+                    base_counts,
+                    ref,
+                    show_n_bases=show_n_bases,
+                    long_format=long_format
+                ), 
             "num_reads" : read_data[ref]["num_reads"]
         }
 
@@ -139,8 +156,152 @@ def get_basecounts(bam, references=None, min_base_quality=0, min_mapping_quality
     return basecount_data
 
 
+def get_basecounts_low_memory(bam, references=None, min_base_quality=0, min_mapping_quality=0, show_n_bases=False, long_format=False):
+    samfile = open_samfile(bam)
+    references = get_references(samfile, references)
+
+    basecount_data = {}
+    for ref in references:
+        num_reads = 0
+        reads = samfile.fetch(ref) # Iterator through all mapped reads in the contig
+        base_counts = [[0, 0, 0, 0, 0, 0] for _ in range(samfile.lengths[samfile.references.index(ref)])]
+
+        for read in reads:
+            if read.mapping_quality >= min_mapping_quality:
+                # Index of where the read starts in the reference
+                ref_pos = read.reference_start
+                # Index for position in (the aligned portion of) the current read
+                seq_pos = 0
+                # The aligned portion of the read (soft clipped bases excluded)
+                seq = read.query_alignment_sequence
+                seq_qual = read.query_alignment_qualities
+                # Sequence of operations describing how the read is aligned to the reference
+                # Each tuple is of the form (operation, length of operation)
+                ctuples = read.cigartuples
+
+                if (seq is not None) and (seq_qual is not None) and (ctuples is not None):
+                    num_reads += 1
+
+                    for operation, length in ctuples:
+                        # 0 : Matched (equal or not)
+                        # 7 : All bases equal to ref
+                        # 8 : All bases not equal to ref
+                        if operation == 0 or operation == 7 or operation == 8:
+                            for r_p, s_p in zip(range(ref_pos, ref_pos + length), range(seq_pos, seq_pos + length)):
+                                if seq_qual[s_p] >= min_base_quality:
+                                    if seq[s_p] == "A":
+                                        base_counts[r_p][0] += 1
+                                    elif seq[s_p] == "C":
+                                        base_counts[r_p][1] += 1
+                                    elif seq[s_p] == "G":
+                                        base_counts[r_p][2] += 1
+                                    elif seq[s_p] == "T":
+                                        base_counts[r_p][3] += 1                       
+                                    elif seq[s_p] == "N":
+                                        base_counts[r_p][5] += 1
+                            seq_pos += length
+                            ref_pos += length
+                
+                        # 1 : Insertion in read
+                        elif operation == 1:
+                            seq_pos += length
+                
+                        # 2 : Deletion in read 
+                        # 3 : Skip in read
+                        elif operation == 2 or operation == 3:
+                            for r_p in range(ref_pos, ref_pos + length):
+                                base_counts[r_p][4] += 1 
+                            ref_pos += length
+                        
+                        # Operations 4, 5 and 6 are soft clipping, hard clipping and padding respectively
+                        # None of these affect the read.query_alignment_sequence                    
+                        # Operation 9 is the 'back' operation which seems to be basically unheard of
+                        # TODO: can it be ignored?
+
+        basecount_data[ref] = {
+            "rows" : get_stats(
+                base_counts,
+                ref,
+                show_n_bases=show_n_bases,
+                long_format=long_format
+            ),
+            "num_reads" : num_reads
+        }
+
+    samfile.close()
+    return basecount_data
+
+
+def get_basecounts_low_memory_2(bam, references=None, min_base_quality=0, min_mapping_quality=0, show_n_bases=False, long_format=False):
+    samfile = open_samfile(bam)
+    references = get_references(samfile, references)
+
+    basecount_data = {}
+    for ref in references:
+        num_reads = 0
+        reads = samfile.fetch(ref) # Iterator through all mapped reads in the contig
+        base_counts = np.zeros((samfile.lengths[samfile.references.index(ref)], 6))
+
+        read_chunk = {
+            "ref_len" : samfile.lengths[samfile.references.index(ref)],
+            "reads" : [],
+            "qualities" : [],
+            "starts" : [],
+            "ctuples" : []
+        }
+        for i, read in enumerate(reads):
+            if read.mapping_quality >= min_mapping_quality:
+                if i != 0 and i % 10000 == 0:
+                    # Count the bases
+                    bcounts = bcount(
+                        read_chunk["ref_len"],
+                        min_base_quality,
+                        read_chunk["reads"],
+                        read_chunk["qualities"],
+                        read_chunk["starts"],
+                        read_chunk["ctuples"]
+                    )
+                    base_counts = np.add(base_counts, bcounts)
+                    read_chunk = {
+                        "ref_len" : samfile.lengths[samfile.references.index(ref)],
+                        "reads" : [],
+                        "qualities" : [],
+                        "starts" : [],
+                        "ctuples" : []
+                    }
+                read_chunk["reads"].append(read.query_alignment_sequence)
+                read_chunk["qualities"].append(read.query_alignment_qualities)
+                read_chunk["starts"].append(read.reference_start)
+                read_chunk["ctuples"].append(read.cigartuples)
+                num_reads += 1
+        # Count the remaining bases
+        bcounts = bcount(
+            read_chunk["ref_len"],
+            min_base_quality,
+            read_chunk["reads"],
+            read_chunk["qualities"],
+            read_chunk["starts"],
+            read_chunk["ctuples"]
+        )
+        base_counts = np.add(base_counts, bcounts)
+
+        basecount_data[ref] = {
+            "rows" : get_stats(
+                base_counts.tolist(),
+                ref,
+                show_n_bases=show_n_bases,
+                long_format=long_format
+            ),
+            "num_reads" : num_reads
+        }
+
+    samfile.close()
+    return basecount_data
+
+
+
 class BaseCount():
-    def __init__(self, bam, references=None, min_base_quality=0, min_mapping_quality=0, show_n_bases=False, long_format=False):
+    def __init__(self, bam, references=None, min_base_quality=0, min_mapping_quality=0, show_n_bases=False, long_format=False, low_memory=False):
         '''
         Generate and store basecount data.
         
@@ -152,6 +313,7 @@ class BaseCount():
         * `min_mapping_quality`: Minimum quality of a read mapping, for the read to be included in the `basecount` data. Default: `0`.
         * `show_n_bases`: Show counts of `N` bases from reads, and include them in statistics. Default: `False`.
         * `long_format`: `True`/`False` to determine whether `basecount` data is stored in long or wide format. Default: `False`.
+        * `low_memory': `True`/`False`, a method of basecounting that uses fixed memory, but is slower. Default: `False`
         '''
         if long_format:
             self.columns = [
@@ -187,14 +349,24 @@ class BaseCount():
             if not show_n_bases:
                 self.columns.pop(self.columns.index("num_n"))
                 self.columns.pop(self.columns.index("pc_n"))
-        self.data = get_basecounts(
-            bam,
-            references=references, 
-            min_base_quality=min_base_quality, 
-            min_mapping_quality=min_mapping_quality,
-            show_n_bases=show_n_bases,
-            long_format=long_format
-        )
+        if low_memory:
+            self.data = get_basecounts_low_memory_2(
+                bam,
+                references=references, 
+                min_base_quality=min_base_quality, 
+                min_mapping_quality=min_mapping_quality,
+                show_n_bases=show_n_bases,
+                long_format=long_format,
+            )        
+        else:
+            self.data = get_basecounts(
+                bam,
+                references=references, 
+                min_base_quality=min_base_quality, 
+                min_mapping_quality=min_mapping_quality,
+                show_n_bases=show_n_bases,
+                long_format=long_format,
+            )
         self.references = list(self.data.keys())
         self.reference_lengths = {ref : len(self.data[ref]["rows"]) for ref in self.references}
 
@@ -311,6 +483,7 @@ def run():
     group.add_argument("--summarise-with-bed", default=None, action="append", metavar="BED_FILE", help="Output summary statistics and amplicon vectors (calculated using the provided BED file)")
     
     parser.add_argument("--decimal-places", default=None, action="append", help="Default value: 3")
+    parser.add_argument("--low-memory", default=False, action="store_true", help="Different method of basecounting that uses fixed memory, but is slower")
     
     args = parser.parse_args()
 
@@ -328,7 +501,8 @@ def run():
         min_base_quality=min_base_quality, 
         min_mapping_quality=min_mapping_quality,
         show_n_bases=args.show_n_bases, 
-        long_format=args.long_format
+        long_format=args.long_format,
+        low_memory=args.low_memory
     )
 
     if (not args.summarise) and (bed is None):

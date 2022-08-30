@@ -10,10 +10,10 @@ from basecount import BaseCount
 
 
 # Put path to directory of BAM files here
-bams_dir = ""
+bams_dir = "/home/tom/git/samples/"
 
 # List of files within the directory that end in .bam
-bams = glob.glob(f'{bams_dir}/*.bam')
+bams = glob.glob(f"{bams_dir}/*.bam")
 
 # Min base quality and min mapping quality test parameters
 min_base_qualities = [0, 10, 20, 30, 40]
@@ -117,30 +117,57 @@ def get_test_data(bam, min_base_quality=0, min_mapping_quality=0):
     return data
 
 
+# @pytest.mark.parametrize("bam,mbq,mmq", params)
+# def test_basecount(bam, mbq, mmq):
+#     # Create an index (if it doesn't already exist) in the same dir as the BAM
+#     if not os.path.isfile(bam + '.bai'):
+#         pysam.index(bam) # type: ignore
+    
+#     bc = BaseCount(bam, min_base_quality=mbq, min_mapping_quality=mmq, show_n_bases=True)
+#     test_data = get_test_data(bam, min_base_quality=mbq, min_mapping_quality=mmq)
+
+#     # Test for matching references
+#     assert bc.references == list(test_data.keys())
+
+#     # Compare the data for each reference
+#     for ref in bc.references:
+#         test_ref_data, test_ref_num_reads = test_data[ref]
+
+#         # Test for matching reference lengths
+#         assert bc.reference_lengths[ref] == len(test_ref_data)
+
+#         # Test for matching total of reads
+#         # Given the other tests, and how this value is calculated, this test is a bit pointless
+#         # But no reason not to include it for completion
+#         assert bc.num_reads(ref) == test_ref_num_reads
+
+#         # Iterate through rows, comparing each
+#         for bc_row, test_row in zip(bc.rows(ref), test_ref_data):
+#             assert bc_row == test_row
+
+
 @pytest.mark.parametrize("bam,mbq,mmq", params)
-def test_basecount(bam, mbq, mmq):
+def test_basecount_low_memory(bam, mbq, mmq):
     # Create an index (if it doesn't already exist) in the same dir as the BAM
     if not os.path.isfile(bam + '.bai'):
         pysam.index(bam) # type: ignore
     
     bc = BaseCount(bam, min_base_quality=mbq, min_mapping_quality=mmq, show_n_bases=True)
-    test_data = get_test_data(bam, min_base_quality=mbq, min_mapping_quality=mmq)
+    bc_low_mem = BaseCount(bam, min_base_quality=mbq, min_mapping_quality=mmq, show_n_bases=True, low_memory=True)
 
     # Test for matching references
-    assert bc.references == list(test_data.keys())
+    assert bc.references == bc_low_mem.references
 
     # Compare the data for each reference
     for ref in bc.references:
-        test_ref_data, test_ref_num_reads = test_data[ref]
-
         # Test for matching reference lengths
-        assert bc.reference_lengths[ref] == len(test_ref_data)
+        assert bc.reference_lengths[ref] == bc_low_mem.reference_lengths[ref]
 
         # Test for matching total of reads
         # Given the other tests, and how this value is calculated, this test is a bit pointless
         # But no reason not to include it for completion
-        assert bc.num_reads(ref) == test_ref_num_reads
+        assert bc.num_reads(ref) == bc_low_mem.num_reads(ref)
 
         # Iterate through rows, comparing each
-        for bc_row, test_row in zip(bc.rows(ref), test_ref_data):
+        for bc_row, test_row in zip(bc.rows(ref), bc_low_mem.rows(ref)):
             assert bc_row == test_row
