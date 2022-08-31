@@ -97,75 +97,102 @@ def open_samfile(bam):
     return samfile
 
 
-def get_basecounts(bam, references=None, min_base_quality=0, min_mapping_quality=0, chunk_size=100000, show_n_bases=False, long_format=False):
-    samfile = open_samfile(bam)
-    references = get_references(samfile, references)
-
-    basecount_data = {}
+def init_read_chunk(references):
+    read_chunk = {}
     for ref in references:
-        ref_len = samfile.lengths[samfile.references.index(ref)]
-        reads = samfile.fetch(ref) # Iterator through all mapped reads in the contig
-        num_reads = 0
-
-        base_counts = np.zeros((ref_len, 6))
-        read_chunk = {
+        read_chunk[ref] = {
             "reads" : [],
             "qualities" : [],
             "starts" : [],
             "ctuples" : []
         }
-        for i, read in enumerate(reads):
-            if read.mapping_quality >= min_mapping_quality:
-                if i != 0 and i % chunk_size == 0:
-                    # Count the bases
-                    bcounts = bcount(
-                        ref_len,
-                        min_base_quality,
-                        read_chunk["reads"],
-                        read_chunk["qualities"],
-                        read_chunk["starts"],
-                        read_chunk["ctuples"]
-                    )
-                    base_counts = np.add(base_counts, bcounts)
-                    read_chunk = {
-                        "reads" : [],
-                        "qualities" : [],
-                        "starts" : [],
-                        "ctuples" : []
-                    }
-                read_chunk["reads"].append(read.query_alignment_sequence)
-                read_chunk["qualities"].append(read.query_alignment_qualities)
-                read_chunk["starts"].append(read.reference_start)
-                read_chunk["ctuples"].append(read.cigartuples)
-                num_reads += 1
-        # Count the remaining bases
-        bcounts = bcount(
-            ref_len,
-            min_base_quality,
-            read_chunk["reads"],
-            read_chunk["qualities"],
-            read_chunk["starts"],
-            read_chunk["ctuples"]
-        )
-        base_counts = np.add(base_counts, bcounts)
+    return read_chunk
 
+
+def get_basecounts(bam, references=None, min_base_quality=0, min_mapping_quality=0, chunk_size=1000000, show_n_bases=False, long_format=False):
+    samfile = open_samfile(bam)
+    references = get_references(samfile, references)
+    reference_lengths = {ref : samfile.lengths[samfile.references.index(ref)] for ref in references}
+    
+    # Iterator through all reads in the file (including unmapped)
+    # This is the only way to access the reads without requiring an index file
+    reads = samfile.fetch(until_eof=True) 
+    
+    basecount_data = {}
+    for ref in references:
         basecount_data[ref] = {
+            "data" : np.zeros((reference_lengths[ref], 6)),
+            "num_reads" : 0
+        }
+
+    # Create empty read chunk
+    read_chunk = init_read_chunk(references)
+    num_chunk_reads = 0
+
+    # Iterate through all reads
+    for read in reads:
+        if num_chunk_reads == chunk_size:
+            # Process the chunk
+            for ref in references:
+                # Basecount the reads for the reference
+                bcounts = bcount(
+                    reference_lengths[ref],
+                    min_base_quality,
+                    read_chunk[ref]["reads"],
+                    read_chunk[ref]["qualities"],
+                    read_chunk[ref]["starts"],
+                    read_chunk[ref]["ctuples"]
+                )
+                # Add the data to the current basecount data for the reference
+                basecount_data[ref]["data"] = np.add(basecount_data[ref]["data"], bcounts)
+                basecount_data[ref]["num_reads"] += len(read_chunk[ref]["reads"])
+                
+            # Empty the read chunk
+            read_chunk = init_read_chunk(references)
+            num_chunk_reads = 0
+
+        # Append read to the chunk, if it is mapped and gte to min mapping quality
+        if (not read.is_unmapped) and (read.mapping_quality >= min_mapping_quality):
+            read_chunk[read.reference_name]["reads"].append(read.query_alignment_sequence)
+            read_chunk[read.reference_name]["qualities"].append(read.query_alignment_qualities)
+            read_chunk[read.reference_name]["starts"].append(read.reference_start)
+            read_chunk[read.reference_name]["ctuples"].append(read.cigartuples)
+            num_chunk_reads += 1
+
+    # Count the remaining bases left in the chunk
+    for ref in references:
+        # Basecount the reads for the reference
+        bcounts = bcount(
+            reference_lengths[ref],
+            min_base_quality,
+            read_chunk[ref]["reads"],
+            read_chunk[ref]["qualities"],
+            read_chunk[ref]["starts"],
+            read_chunk[ref]["ctuples"]
+        )
+        # Add the data to the current basecount data for the reference
+        basecount_data[ref]["data"] = np.add(basecount_data[ref]["data"], bcounts)
+        basecount_data[ref]["num_reads"] += len(read_chunk[ref]["reads"])
+
+    # Generate statistics
+    basecount_stats = {}
+    for ref in references:
+        basecount_stats[ref] = {
             "rows" : get_stats(
-                base_counts.tolist(),
+                basecount_data[ref]["data"].tolist(),
                 ref,
                 show_n_bases=show_n_bases,
                 long_format=long_format
             ),
-            "num_reads" : num_reads
+            "num_reads" : basecount_data[ref]["num_reads"]
         }
 
     samfile.close()
-    return basecount_data
-
+    return basecount_stats
 
 
 class BaseCount():
-    def __init__(self, bam, references=None, min_base_quality=0, min_mapping_quality=0, chunk_size=100000, show_n_bases=False, long_format=False):
+    def __init__(self, bam, references=None, min_base_quality=0, min_mapping_quality=0, chunk_size=1000000, show_n_bases=False, long_format=False):
         '''
         Generate and store basecount data.
         
@@ -175,7 +202,7 @@ class BaseCount():
         * `references`: List of specific references to run basecount on. If `None`, `basecount` will be run on every reference.
         * `min_base_quality`: Minimum quality of a base, for the base to be included in the `basecount` data. Default: `0`.
         * `min_mapping_quality`: Minimum quality of a read mapping, for the read to be included in the `basecount` data. Default: `0`.
-        * `chunk_size`: Max number of reads loaded into memory and basecounted at a given time. Default: `100000`.
+        * `chunk_size`: Max number of reads loaded into memory and basecounted at a given time. Default: `1000000`.
         * `show_n_bases`: Show counts of `N` bases from reads, and include them in statistics. Default: `False`.
         * `long_format`: `True`/`False` to determine whether `basecount` data is stored in long or wide format. Default: `False`.
         '''
@@ -330,7 +357,7 @@ def run():
     parser.add_argument("--references", default=None, nargs="+", action="append", help="Choose specific reference(s) to run basecount on")
     parser.add_argument("--min-base-quality", default=None, action="append", help="Default value: 0")
     parser.add_argument("--min-mapping-quality", default=None, action="append", help="Default value: 0")
-    parser.add_argument("--chunk-size", default=None, action="append", help="Max number of reads loaded into memory and basecounted at a given time. Default value: 100000")
+    parser.add_argument("--chunk-size", default=None, action="append", help="Max number of reads loaded into memory and basecounted at a given time. Default value: 1000000")
     parser.add_argument("--show-n-bases", default=False, action="store_true", help="Show counts of 'N' bases from reads, and include them in statistics")
 
     group = parser.add_mutually_exclusive_group()
@@ -346,7 +373,7 @@ def run():
     references = handle_arg(args.references, "references")
     min_base_quality = int(handle_arg(args.min_base_quality, "min-base-quality", default=0, provided_once=True)) # type: ignore
     min_mapping_quality = int(handle_arg(args.min_mapping_quality, "min-mapping-quality", default=0, provided_once=True)) # type: ignore
-    chunk_size = int(handle_arg(args.chunk_size, "chunk-size", default=100000, provided_once=True)) # type: ignore
+    chunk_size = int(handle_arg(args.chunk_size, "chunk-size", default=1000000, provided_once=True)) # type: ignore
     bed = handle_arg(args.summarise_with_bed, "bed", provided_once=True)
     decimal_places = int(handle_arg(args.decimal_places, "decimal_places", default=3, provided_once=True)) # type: ignore
 

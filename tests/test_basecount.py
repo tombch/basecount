@@ -14,11 +14,12 @@ from basecount import BaseCount
 bams = glob.glob("/your/bam/dir/*.bam")
 
 # Min base quality and min mapping quality test parameters
-min_base_qualities = [0, 10, 20, 30, 40]
-min_mapping_qualities = [0, 10, 20, 30, 40, 50, 60]
+min_base_qualities = [0, 20, 40]
+min_mapping_qualities = [0, 30, 60]
 
 # Test params assembled together
 params = list(itertools.product(bams, min_base_qualities, min_mapping_qualities))
+
 
 def calculate_ref_region(bam, ref, start, end, min_base_quality, min_mapping_quality):
     samfile = pysam.AlignmentFile(bam, mode="rb")
@@ -30,7 +31,7 @@ def calculate_ref_region(bam, ref, start, end, min_base_quality, min_mapping_qua
     base_count = [{'A' : 0, 'C' : 0, 'G' : 0, 'T' : 0, 'DS' : 0, 'N' : 0} for _ in range(end - start)]
     region = [[] for _ in range(end - start)]
 
-    for pileupcolumn in samfile.pileup(ref, start, end, min_base_quality=0, min_mapping_quality=0, max_depth=100000000, stepper="nofilter"):
+    for pileupcolumn in samfile.pileup(ref, start, end, min_base_quality=0, min_mapping_quality=0, max_depth=1000000000, stepper="nofilter"):
         ref_pos = pileupcolumn.reference_pos # type: ignore
         if start <= ref_pos < end:
             for pileupread in pileupcolumn.pileups: # type: ignore
@@ -88,7 +89,7 @@ def calculate_ref_region(bam, ref, start, end, min_base_quality, min_mapping_qua
     return region
 
 
-def get_test_data(bam, min_base_quality=0, min_mapping_quality=0):
+def get_pysam_data(bam, min_base_quality=0, min_mapping_quality=0):
     # Max number of workers for getting test data
     num_workers = 8
 
@@ -204,7 +205,7 @@ def open_samfile(bam):
     return samfile
 
 
-def get_basecounts(bam, references=None, min_base_quality=0, min_mapping_quality=0, show_n_bases=False, long_format=False):
+def old_basecount(bam, references=None, min_base_quality=0, min_mapping_quality=0, show_n_bases=False, long_format=False):
     samfile = open_samfile(bam)
     references = get_references(samfile, references)
 
@@ -264,13 +265,13 @@ def get_basecounts(bam, references=None, min_base_quality=0, min_mapping_quality
 
 
 # @pytest.mark.parametrize("bam,mbq,mmq", get_params())
-# def test_basecount(bam, mbq, mmq):
+# def test_against_pysam(bam, mbq, mmq):
 #     # Create an index (if it doesn't already exist) in the same dir as the BAM
 #     if not os.path.isfile(bam + '.bai'):
 #         pysam.index(bam) # type: ignore
     
 #     bc = BaseCount(bam, min_base_quality=mbq, min_mapping_quality=mmq, show_n_bases=True)
-#     test_data = get_test_data(bam, min_base_quality=mbq, min_mapping_quality=mmq)
+#     test_data = get_pysam_data(bam, min_base_quality=mbq, min_mapping_quality=mmq)
 
 #     # Test for matching references
 #     assert bc.references == list(test_data.keys())
@@ -293,13 +294,9 @@ def get_basecounts(bam, references=None, min_base_quality=0, min_mapping_quality
 
 
 @pytest.mark.parametrize("bam,mbq,mmq", params)
-def test_basecount_old(bam, mbq, mmq):
-    # Create an index (if it doesn't already exist) in the same dir as the BAM
-    if not os.path.isfile(bam + '.bai'):
-        pysam.index(bam) # type: ignore
-    
+def test_against_old_basecount(bam, mbq, mmq):    
+    bc_old = old_basecount(bam, references=None, min_base_quality=mbq, min_mapping_quality=mmq, show_n_bases=True)
     bc = BaseCount(bam, min_base_quality=mbq, min_mapping_quality=mmq, show_n_bases=True)
-    bc_old = get_basecounts(bam, references=None, min_base_quality=mbq, min_mapping_quality=mmq, show_n_bases=True)
 
     # Test for matching references
     assert bc.references == list(bc_old.keys())
