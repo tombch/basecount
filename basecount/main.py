@@ -121,7 +121,7 @@ def get_basecounts(bam, references=None, min_base_quality=0, min_mapping_quality
     basecount_data = {}
     for ref in references:
         basecount_data[ref] = {
-            "data" : np.zeros((reference_lengths[ref], 6)),
+            "data" : np.zeros((reference_lengths[ref], 6), dtype=int),
             "num_reads" : 0
         }
 

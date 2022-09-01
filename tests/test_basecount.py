@@ -20,31 +20,29 @@ min_mapping_qualities = [0, 30, 60]
 # Test params assembled together
 params = list(itertools.product(bams, min_base_qualities, min_mapping_qualities))
 
-
-def calculate_ref_region(bam, ref, start, end, min_base_quality, min_mapping_quality):
+def calculate_ref_region(bam, ref, start, end, min_base_qual, min_mapping_qual):
     samfile = pysam.AlignmentFile(bam, mode="rb")
     normalising_factor = (1 / math.log2(6)) # Normalises maximum entropy to 1
     secondary_normalising_factor = (1 / math.log2(5)) # Normalises maximum secondary_entropy to 1
     empty_bases = [0, 0, 0, 0, 0, 0]
     invalid_base_percentages = [-1, -1, -1, -1, -1, -1] # Percentage values where coverage is zero
-    
     base_count = [{'A' : 0, 'C' : 0, 'G' : 0, 'T' : 0, 'DS' : 0, 'N' : 0} for _ in range(end - start)]
     region = [[] for _ in range(end - start)]
 
-    for pileupcolumn in samfile.pileup(ref, start, end, min_base_quality=0, min_mapping_quality=0, max_depth=1000000000, stepper="nofilter"):
+    for pileupcolumn in samfile.pileup(contig=ref, start=start, stop=end, min_base_quality=0, min_mapping_quality=0, max_depth=1000000000, stepper="nofilter", truncate=True):
         ref_pos = pileupcolumn.reference_pos # type: ignore
+
         if start <= ref_pos < end:
             for pileupread in pileupcolumn.pileups: # type: ignore
-                if (pileupread.alignment.mapping_quality < min_mapping_quality):
-                    continue    
-                if not pileupread.is_del and not pileupread.is_refskip:
-                    if pileupread.alignment.query_qualities[pileupread.query_position] >= min_base_quality:
+                if (pileupread.alignment.mapping_quality < min_mapping_qual):
+                    continue
+                if (not pileupread.is_del) and (not pileupread.is_refskip):
+                    if pileupread.alignment.query_qualities[pileupread.query_position] >= min_base_qual:
                         base_count[ref_pos - start][pileupread.alignment.query_sequence[pileupread.query_position]] += 1
                 else:
                     base_count[ref_pos - start]['DS'] += 1
 
-            # TODO: Had to change this to fit with the min base and mapping args, which begs question how should coverage be counted ?
-            # coverage = pileupcolumn.nsegments # type: ignore
+            # Investigate nsegments on pysam repository, and its usage in generating pileupcolumn pileups
             coverage = sum(base_count[ref_pos - start].values())
 
             if coverage != 0:
@@ -264,33 +262,36 @@ def old_basecount(bam, references=None, min_base_quality=0, min_mapping_quality=
     return basecount_data
 
 
-# @pytest.mark.parametrize("bam,mbq,mmq", get_params())
-# def test_against_pysam(bam, mbq, mmq):
-#     # Create an index (if it doesn't already exist) in the same dir as the BAM
-#     if not os.path.isfile(bam + '.bai'):
-#         pysam.index(bam) # type: ignore
+@pytest.mark.parametrize("bam,mbq,mmq", params)
+def test_against_pysam(bam, mbq, mmq):
+    # Create an index (if it doesn't already exist) in the same dir as the BAM
+    if not os.path.isfile(bam + '.bai'):
+        pysam.index(bam) # type: ignore
     
-#     bc = BaseCount(bam, min_base_quality=mbq, min_mapping_quality=mmq, show_n_bases=True)
-#     test_data = get_pysam_data(bam, min_base_quality=mbq, min_mapping_quality=mmq)
+    bc = BaseCount(bam, min_base_quality=mbq, min_mapping_quality=mmq, show_n_bases=True)
+    test_data = get_pysam_data(bam, min_base_quality=mbq, min_mapping_quality=mmq)
 
-#     # Test for matching references
-#     assert bc.references == list(test_data.keys())
+    # Test for matching references
+    assert bc.references == list(test_data.keys())
 
-#     # Compare the data for each reference
-#     for ref in bc.references:
-#         test_ref_data, test_ref_num_reads = test_data[ref]
+    # Compare the data for each reference
+    for ref in bc.references:
+        test_ref_data, test_ref_num_reads = test_data[ref]
 
-#         # Test for matching reference lengths
-#         assert bc.reference_lengths[ref] == len(test_ref_data)
+        # Test for matching reference lengths
+        assert bc.reference_lengths[ref] == len(test_ref_data)
 
-#         # Test for matching total of reads
-#         # Given the other tests, and how this value is calculated, this test is a bit pointless
-#         # But no reason not to include it for completion
-#         assert bc.num_reads(ref) == test_ref_num_reads
+        # Test for matching total of reads
+        # Given the other tests, and how this value is calculated, this test is a bit pointless
+        # But no reason not to include it for completion
+        assert bc.num_reads(ref) == test_ref_num_reads
 
-#         # Iterate through rows, comparing each
-#         for bc_row, test_row in zip(bc.rows(ref), test_ref_data):
-#             assert bc_row == test_row
+        failures = []
+        # Iterate through rows, comparing each
+        for bc_row, test_row in zip(bc.rows(ref), test_ref_data):
+            if bc_row != test_row:
+                failures.append((bc_row, test_row))
+        assert len(failures) == 0
 
 
 @pytest.mark.parametrize("bam,mbq,mmq", params)

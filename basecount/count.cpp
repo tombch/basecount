@@ -24,6 +24,9 @@ std::vector<std::vector<unsigned int>> bcount(
         // Read with soft clipped bases excluded
         const std::string &read = reads[i];
 
+        // Qualities for the read, with soft clipped bases excluded
+        const std::vector<unsigned int> &quals = qualities[i];
+
         // Sequence of operations describing how the read is aligned to the reference
         // Each pair is of the form (operation, length of operation)
         const std::vector<std::pair<unsigned int, unsigned int>> &tups = ctuples[i];
@@ -31,7 +34,7 @@ std::vector<std::vector<unsigned int>> bcount(
         // Current position in the reference
         unsigned int refPos = starts[i];
 
-        // Current position in the read, with soft clipped bases excluded
+        // Current position in the read
         unsigned int readPos = 0;
 
         for (const auto &tup : tups)
@@ -50,7 +53,7 @@ std::vector<std::vector<unsigned int>> bcount(
                 // Iterate through the read for the given length of the operation
                 for (unsigned int j = 0; j < opLen; j++)
                 {
-                    if (qualities[i][readPos] >= minBaseQuality)
+                    if (quals[readPos] >= minBaseQuality)
                     {
                         switch(read[readPos])
                         {
