@@ -11,7 +11,7 @@ from basecount import BaseCount
 
 
 # List of bam files
-bams = glob.glob("/your/bam/dir/*.bam")
+bams = glob.glob(os.path.join(os.environ["SAMPLES_DIR"], "*.bam"))
 
 # Min base quality and min mapping quality test parameters
 min_base_qualities = [0, 20, 40]
@@ -29,6 +29,7 @@ def calculate_ref_region(bam, ref, start, end, min_base_qual, min_mapping_qual):
     base_count = [{'A' : 0, 'C' : 0, 'G' : 0, 'T' : 0, 'DS' : 0, 'N' : 0} for _ in range(end - start)]
     region = [[] for _ in range(end - start)]
 
+    # Truncate = true seems to get much closer to the output
     for pileupcolumn in samfile.pileup(contig=ref, start=start, stop=end, min_base_quality=0, min_mapping_quality=0, max_depth=1000000000, stepper="nofilter", truncate=True):
         ref_pos = pileupcolumn.reference_pos # type: ignore
 
