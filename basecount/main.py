@@ -29,7 +29,7 @@ def get_stats(base_counts, ref, show_n_bases=False, long_format=False):
     for reference_pos, base_count in enumerate(base_counts):
         if not show_n_bases:
             base_count.pop(n_index)
-        
+
         # Defaults for when the coverage is zero
         base_percentages = invalid_percentages
         entropy = 1
@@ -45,16 +45,20 @@ def get_stats(base_counts, ref, show_n_bases=False, long_format=False):
             secondary_base_count.pop(np.argmax(base_count))
             secondary_coverage = sum(secondary_base_count)
             if secondary_coverage != 0:
-                secondary_base_probabilities = [count / secondary_coverage for count in secondary_base_count]
-                secondary_entropy = secondary_normalising_factor * get_entropy(secondary_base_probabilities)
+                secondary_base_probabilities = [
+                    count / secondary_coverage for count in secondary_base_count
+                ]
+                secondary_entropy = secondary_normalising_factor * get_entropy(
+                    secondary_base_probabilities
+                )
 
-        # Create row of basecount data, either in long format or wide format 
+        # Create row of basecount data, either in long format or wide format
         # Wide format is default
         if long_format:
             for base, count, percentage in zip(bases, base_count, base_percentages):
                 row = []
                 row.append(ref)
-                row.append(reference_pos + 1) # Output one-based coordinates
+                row.append(reference_pos + 1)  # Output one-based coordinates
                 row.append(coverage)
                 row.append(base)
                 row.append(count)
@@ -65,14 +69,13 @@ def get_stats(base_counts, ref, show_n_bases=False, long_format=False):
         else:
             row = []
             row.append(ref)
-            row.append(reference_pos + 1) # Output one-based coordinates
+            row.append(reference_pos + 1)  # Output one-based coordinates
             row.append(coverage)
             row.extend(base_count)
             row.extend(base_percentages)
             row.append(entropy)
             row.append(secondary_entropy)
             data.append(row)
-    
     return data
 
 
@@ -100,29 +103,34 @@ def open_samfile(bam):
 def init_read_chunk(references):
     read_chunk = {}
     for ref in references:
-        read_chunk[ref] = {
-            "reads" : [],
-            "qualities" : [],
-            "starts" : [],
-            "ctuples" : []
-        }
+        read_chunk[ref] = {"reads": [], "qualities": [], "starts": [], "ctuples": []}
     return read_chunk
 
 
-def get_basecounts(bam, references=None, min_base_quality=0, min_mapping_quality=0, chunk_size=1000000, show_n_bases=False, long_format=False):
+def get_basecounts(
+    bam,
+    references=None,
+    min_base_quality=0,
+    min_mapping_quality=0,
+    chunk_size=1000000,
+    show_n_bases=False,
+    long_format=False,
+):
     samfile = open_samfile(bam)
     references = get_references(samfile, references)
-    reference_lengths = {ref : samfile.lengths[samfile.references.index(ref)] for ref in references}
-    
+    reference_lengths = {
+        ref: samfile.lengths[samfile.references.index(ref)] for ref in references
+    }
+
     # Iterator through all reads in the file (including unmapped)
     # This is the only way to access the reads without requiring an index file
-    reads = samfile.fetch(until_eof=True) 
-    
+    reads = samfile.fetch(until_eof=True)
+
     basecount_data = {}
     for ref in references:
         basecount_data[ref] = {
-            "data" : np.zeros((reference_lengths[ref], 6), dtype=int),
-            "num_reads" : 0
+            "data": np.zeros((reference_lengths[ref], 6), dtype=int),
+            "num_reads": 0,
         }
 
     # Create empty read chunk
@@ -141,20 +149,26 @@ def get_basecounts(bam, references=None, min_base_quality=0, min_mapping_quality
                     read_chunk[ref]["reads"],
                     read_chunk[ref]["qualities"],
                     read_chunk[ref]["starts"],
-                    read_chunk[ref]["ctuples"]
+                    read_chunk[ref]["ctuples"],
                 )
                 # Add the data to the current basecount data for the reference
-                basecount_data[ref]["data"] = np.add(basecount_data[ref]["data"], bcounts)
+                basecount_data[ref]["data"] = np.add(
+                    basecount_data[ref]["data"], bcounts
+                )
                 basecount_data[ref]["num_reads"] += len(read_chunk[ref]["reads"])
-                
+
             # Empty the read chunk
             read_chunk = init_read_chunk(references)
             num_chunk_reads = 0
 
         # Append read to the chunk, if it is mapped and gte to min mapping quality
         if (not read.is_unmapped) and (read.mapping_quality >= min_mapping_quality):
-            read_chunk[read.reference_name]["reads"].append(read.query_alignment_sequence)
-            read_chunk[read.reference_name]["qualities"].append(read.query_alignment_qualities)
+            read_chunk[read.reference_name]["reads"].append(
+                read.query_alignment_sequence
+            )
+            read_chunk[read.reference_name]["qualities"].append(
+                read.query_alignment_qualities
+            )
             read_chunk[read.reference_name]["starts"].append(read.reference_start)
             read_chunk[read.reference_name]["ctuples"].append(read.cigartuples)
             num_chunk_reads += 1
@@ -168,7 +182,7 @@ def get_basecounts(bam, references=None, min_base_quality=0, min_mapping_quality
             read_chunk[ref]["reads"],
             read_chunk[ref]["qualities"],
             read_chunk[ref]["starts"],
-            read_chunk[ref]["ctuples"]
+            read_chunk[ref]["ctuples"],
         )
         # Add the data to the current basecount data for the reference
         basecount_data[ref]["data"] = np.add(basecount_data[ref]["data"], bcounts)
@@ -178,24 +192,33 @@ def get_basecounts(bam, references=None, min_base_quality=0, min_mapping_quality
     basecount_stats = {}
     for ref in references:
         basecount_stats[ref] = {
-            "rows" : get_stats(
+            "rows": get_stats(
                 basecount_data[ref]["data"].tolist(),
                 ref,
                 show_n_bases=show_n_bases,
-                long_format=long_format
+                long_format=long_format,
             ),
-            "num_reads" : basecount_data[ref]["num_reads"]
+            "num_reads": basecount_data[ref]["num_reads"],
         }
 
     samfile.close()
     return basecount_stats
 
 
-class BaseCount():
-    def __init__(self, bam, references=None, min_base_quality=0, min_mapping_quality=0, chunk_size=1000000, show_n_bases=False, long_format=False):
-        '''
+class BaseCount:
+    def __init__(
+        self,
+        bam,
+        references=None,
+        min_base_quality=0,
+        min_mapping_quality=0,
+        chunk_size=1000000,
+        show_n_bases=False,
+        long_format=False,
+    ):
+        """
         Generate and store basecount data.
-        
+
         Arguments:
 
         * `bam`: Path to BAM file (an index file is not required).
@@ -205,59 +228,61 @@ class BaseCount():
         * `chunk_size`: Max number of reads loaded into memory and basecounted at a given time. Default: `1000000`.
         * `show_n_bases`: Show counts of `N` bases from reads, and include them in statistics. Default: `False`.
         * `long_format`: `True`/`False` to determine whether `basecount` data is stored in long or wide format. Default: `False`.
-        '''
+        """
         if long_format:
             self.columns = [
-                "reference", 
-                "position", 
-                "coverage", 
-                "base", 
-                "count", 
-                "percentage", 
-                "entropy", 
-                "secondary_entropy"
+                "reference",
+                "position",
+                "coverage",
+                "base",
+                "count",
+                "percentage",
+                "entropy",
+                "secondary_entropy",
             ]
         else:
             self.columns = [
-                "reference", 
-                "position", 
-                "coverage", 
-                "num_a", 
-                "num_c", 
-                "num_g", 
-                "num_t", 
-                "num_ds", 
-                "num_n", 
-                "pc_a", 
-                "pc_c", 
-                "pc_g", 
-                "pc_t", 
-                "pc_ds", 
-                "pc_n", 
-                "entropy", 
-                "secondary_entropy"
+                "reference",
+                "position",
+                "coverage",
+                "num_a",
+                "num_c",
+                "num_g",
+                "num_t",
+                "num_ds",
+                "num_n",
+                "pc_a",
+                "pc_c",
+                "pc_g",
+                "pc_t",
+                "pc_ds",
+                "pc_n",
+                "entropy",
+                "secondary_entropy",
             ]
             if not show_n_bases:
                 self.columns.pop(self.columns.index("num_n"))
                 self.columns.pop(self.columns.index("pc_n"))
         self.data = get_basecounts(
             bam,
-            references=references, 
-            min_base_quality=min_base_quality, 
+            references=references,
+            min_base_quality=min_base_quality,
             min_mapping_quality=min_mapping_quality,
             chunk_size=chunk_size,
             show_n_bases=show_n_bases,
             long_format=long_format,
         )
         self.references = list(self.data.keys())
-        self.reference_lengths = {ref : len(self.data[ref]["rows"]) for ref in self.references}
+        self.reference_lengths = {
+            ref: len(self.data[ref]["rows"]) for ref in self.references
+        }
 
     def rows(self, reference=None):
-        '''
+        """
         Returns an iterator of lists for the basecount data.
 
         If a reference is given, then only basecount data for that reference will be yielded.
-        '''
+        """
         if reference is None:
             for ref in self.data.keys():
                 for row in self.data[ref]["rows"]:
@@ -269,11 +294,11 @@ class BaseCount():
                 yield row
 
     def records(self, reference=None):
-        '''
+        """
         Returns an iterator of dictionaries (with column names as the keys) for the basecount data.
 
         If a reference is given, then only basecount data for that reference will be yielded.
-        '''
+        """
         if reference is None:
             for ref in self.data.keys():
                 for row in self.data[ref]["rows"]:
@@ -285,11 +310,11 @@ class BaseCount():
                 yield dict(zip(self.columns, row))
 
     def num_reads(self, reference=None):
-        '''
+        """
         Returns the total number of reads, across all references.
 
         If a `reference` is given, returns the total number of reads just for that reference.
-        '''
+        """
         if reference is None:
             return sum([self.data[ref]["num_reads"] for ref in self.references])
         else:
@@ -298,11 +323,11 @@ class BaseCount():
             return self.data[reference]["num_reads"]
 
     def mean_coverage(self, reference=None):
-        '''
+        """
         Returns the mean coverage across all positions, across all references.
 
         If a `reference` is given, returns the average coverage across all positions of that reference only.
-        '''
+        """
         coverages = []
         if reference is None:
             for record in self.records():
@@ -315,11 +340,11 @@ class BaseCount():
         return np.mean(coverages)
 
     def mean_entropy(self, reference=None, min_coverage=0):
-        '''
+        """
         Returns the mean entropy across all positions, across all references.
 
         If a `reference` is given, returns the average entropy across all positions of that reference only.
-        '''
+        """
         entropies = []
         if reference is None:
             for record in self.records():
@@ -332,7 +357,7 @@ class BaseCount():
                 if record["coverage"] >= min_coverage:
                     entropies.append(record["entropy"])
         return np.mean(entropies)
-    
+
 
 def handle_arg(arg, name, default=None, provided_once=False):
     if arg is None:
@@ -354,47 +379,93 @@ def run():
     parser = argparse.ArgumentParser()
     parser.add_argument("bam", help="Path to BAM file (an index file is not required)")
     parser.add_argument("-v", "--version", action="version", version=__version__)
-    parser.add_argument("--references", default=None, nargs="+", action="append", help="Choose specific reference(s) to run basecount on")
-    parser.add_argument("--min-base-quality", default=None, action="append", help="Default value: 0")
-    parser.add_argument("--min-mapping-quality", default=None, action="append", help="Default value: 0")
-    parser.add_argument("--chunk-size", default=None, action="append", help="Max number of reads loaded into memory and basecounted at a given time. Default value: 1000000")
-    parser.add_argument("--show-n-bases", default=False, action="store_true", help="Show counts of 'N' bases from reads, and include them in statistics")
+    parser.add_argument(
+        "--references",
+        default=None,
+        nargs="+",
+        action="append",
+        help="Choose specific reference(s) to run basecount on",
+    )
+    parser.add_argument(
+        "--min-base-quality", default=None, action="append", help="Default value: 0"
+    )
+    parser.add_argument(
+        "--min-mapping-quality", default=None, action="append", help="Default value: 0"
+    )
+    parser.add_argument(
+        "--chunk-size",
+        default=None,
+        action="append",
+        help="Max number of reads loaded into memory and basecounted at a given time. Default value: 1000000",
+    )
+    parser.add_argument(
+        "--show-n-bases",
+        default=False,
+        action="store_true",
+        help="Show counts of 'N' bases from reads, and include them in statistics",
+    )
 
     group = parser.add_mutually_exclusive_group()
-    group.add_argument("--long-format", default=False, action="store_true", help="Output per-position statistics in long format, instead of the default wide format")
-    group.add_argument("--summarise", default=False, action="store_true", help="Output summary statistics")
-    group.add_argument("--summarise-with-bed", default=None, action="append", metavar="BED_FILE", help="Output summary statistics and amplicon vectors (calculated using the provided BED file)")
-    
-    parser.add_argument("--decimal-places", default=None, action="append", help="Default value: 3")
-    
+    group.add_argument(
+        "--long-format",
+        default=False,
+        action="store_true",
+        help="Output per-position statistics in long format, instead of the default wide format",
+    )
+    group.add_argument(
+        "--summarise",
+        default=False,
+        action="store_true",
+        help="Output summary statistics",
+    )
+    group.add_argument(
+        "--summarise-with-bed",
+        default=None,
+        action="append",
+        metavar="BED_FILE",
+        help="Output summary statistics and amplicon vectors (calculated using the provided BED file)",
+    )
+
+    parser.add_argument(
+        "--decimal-places", default=None, action="append", help="Default value: 3"
+    )
+
     args = parser.parse_args()
 
     # Handle arguments
     references = handle_arg(args.references, "references")
-    min_base_quality = int(handle_arg(args.min_base_quality, "min-base-quality", default=0, provided_once=True)) # type: ignore
-    min_mapping_quality = int(handle_arg(args.min_mapping_quality, "min-mapping-quality", default=0, provided_once=True)) # type: ignore
-    chunk_size = int(handle_arg(args.chunk_size, "chunk-size", default=1000000, provided_once=True)) # type: ignore
+    min_base_quality = int(handle_arg(args.min_base_quality, "min-base-quality", default=0, provided_once=True))  # type: ignore
+    min_mapping_quality = int(handle_arg(args.min_mapping_quality, "min-mapping-quality", default=0, provided_once=True))  # type: ignore
+    chunk_size = int(handle_arg(args.chunk_size, "chunk-size", default=1000000, provided_once=True))  # type: ignore
     bed = handle_arg(args.summarise_with_bed, "bed", provided_once=True)
-    decimal_places = int(handle_arg(args.decimal_places, "decimal_places", default=3, provided_once=True)) # type: ignore
+    decimal_places = int(handle_arg(args.decimal_places, "decimal_places", default=3, provided_once=True))  # type: ignore
 
     # Generate the data
     bc = BaseCount(
         args.bam,
         references=references,
-        min_base_quality=min_base_quality, 
+        min_base_quality=min_base_quality,
         min_mapping_quality=min_mapping_quality,
         chunk_size=chunk_size,
-        show_n_bases=args.show_n_bases, 
-        long_format=args.long_format
+        show_n_bases=args.show_n_bases,
+        long_format=args.long_format,
     )
 
     if (not args.summarise) and (bed is None):
         # Display per-position statistics
         print("\t".join(bc.columns))
         for row in bc.rows():
-            print("\t".join([str(round(x, decimal_places)) if not isinstance(x, str) else x for x in row]), sep="\t")
+            print(
+                "\t".join(
+                    [
+                        str(round(x, decimal_places)) if not isinstance(x, str) else x
+                        for x in row
+                    ]
+                ),
+                sep="\t",
+            )
     else:
-        # Generate summary statistics        
+        # Generate summary statistics
         for ref in bc.references:
             coverages = []
             entropies = []
@@ -409,16 +480,18 @@ def run():
             avg_entropies = np.mean(entropies)
 
             ref_length = bc.reference_lengths[ref]
-            pc_ref_coverage = 100 * (len([cov for cov in coverages if cov != 0]) / ref_length)
-            
+            pc_ref_coverage = 100 * (
+                len([cov for cov in coverages if cov != 0]) / ref_length
+            )
+
             # Format summary statistics
             summary_stats = {
-                "reference_name" : ref,
-                "reference_length" : round(ref_length, decimal_places),
-                "num_reads" : round(bc.num_reads(ref), decimal_places),
-                "pc_reference_coverage" : round(pc_ref_coverage, decimal_places),
-                "avg_depth" : round(avg_coverage, decimal_places),
-                "avg_entropy" : round(avg_entropies, decimal_places),
+                "reference_name": ref,
+                "reference_length": round(ref_length, decimal_places),
+                "num_reads": round(bc.num_reads(ref), decimal_places),
+                "pc_reference_coverage": round(pc_ref_coverage, decimal_places),
+                "avg_depth": round(avg_coverage, decimal_places),
+                "avg_entropy": round(avg_entropies, decimal_places),
             }
 
             # Display summary statistics
@@ -438,25 +511,27 @@ def run():
                 entropy_data = [[] for _ in scheme]
                 mean_entropy_vector = []
                 median_entropy_vector = []
-                
+
                 secondary_entropy_data = [[] for _ in scheme]
                 mean_secondary_entropy_vector = []
                 median_secondary_entropy_vector = []
 
                 for i, (start, end) in enumerate(zip(tile_starts, tile_ends)):
-                    for j, (coverage, entropy, secondary_entropy) in enumerate(zip(coverages, entropies, secondary_entropies)):
+                    for j, (coverage, entropy, secondary_entropy) in enumerate(
+                        zip(coverages, entropies, secondary_entropies)
+                    ):
                         if start <= j <= end:
                             coverage_data[i].append(coverage)
                             entropy_data[i].append(entropy)
                             secondary_entropy_data[i].append(secondary_entropy)
-                    
+
                     if coverage_data[i]:
                         mean_coverage_vector.append(np.mean(coverage_data[i]))
                         median_coverage_vector.append(np.median(coverage_data[i]))
                     else:
                         mean_coverage_vector.append(-1)
-                        median_coverage_vector.append(-1)  
-    
+                        median_coverage_vector.append(-1)
+
                     if entropy_data[i]:
                         mean_entropy_vector.append(np.mean(entropy_data[i]))
                         median_entropy_vector.append(np.median(entropy_data[i]))
@@ -465,20 +540,54 @@ def run():
                         median_entropy_vector.append(-1)
 
                     if secondary_entropy_data[i]:
-                        mean_secondary_entropy_vector.append(np.mean(secondary_entropy_data[i]))
-                        median_secondary_entropy_vector.append(np.median(secondary_entropy_data[i]))
+                        mean_secondary_entropy_vector.append(
+                            np.mean(secondary_entropy_data[i])
+                        )
+                        median_secondary_entropy_vector.append(
+                            np.median(secondary_entropy_data[i])
+                        )
                     else:
                         mean_secondary_entropy_vector.append(-1)
                         median_secondary_entropy_vector.append(-1)
-                
+
                 # Format amplicon vectors
                 amplicon_vectors = {
-                    "mean_coverage_amplicon_vector" : ", ".join([str(round(x, decimal_places)) for x in mean_coverage_vector]) if mean_coverage_vector else "-",
-                    "median_coverage_amplicon_vector" : ", ".join([str(round(x, decimal_places)) for x in median_coverage_vector]) if median_coverage_vector else "-",
-                    "mean_entropy_amplicon_vector" : ", ".join([str(round(x, decimal_places)) for x in mean_entropy_vector]) if mean_entropy_vector else "-",
-                    "median_entropy_amplicon_vector" : ", ".join([str(round(x, decimal_places)) for x in median_entropy_vector]) if median_entropy_vector else "-",
-                    "mean_secondary_entropy_amplicon_vector" : ", ".join([str(round(x, decimal_places)) for x in mean_secondary_entropy_vector]) if mean_secondary_entropy_vector else "-",
-                    "median_secondary_entropy_amplicon_vector" : ", ".join([str(round(x, decimal_places)) for x in median_secondary_entropy_vector]) if median_secondary_entropy_vector else "-"
+                    "mean_coverage_amplicon_vector": ", ".join(
+                        [str(round(x, decimal_places)) for x in mean_coverage_vector]
+                    )
+                    if mean_coverage_vector
+                    else "-",
+                    "median_coverage_amplicon_vector": ", ".join(
+                        [str(round(x, decimal_places)) for x in median_coverage_vector]
+                    )
+                    if median_coverage_vector
+                    else "-",
+                    "mean_entropy_amplicon_vector": ", ".join(
+                        [str(round(x, decimal_places)) for x in mean_entropy_vector]
+                    )
+                    if mean_entropy_vector
+                    else "-",
+                    "median_entropy_amplicon_vector": ", ".join(
+                        [str(round(x, decimal_places)) for x in median_entropy_vector]
+                    )
+                    if median_entropy_vector
+                    else "-",
+                    "mean_secondary_entropy_amplicon_vector": ", ".join(
+                        [
+                            str(round(x, decimal_places))
+                            for x in mean_secondary_entropy_vector
+                        ]
+                    )
+                    if mean_secondary_entropy_vector
+                    else "-",
+                    "median_secondary_entropy_amplicon_vector": ", ".join(
+                        [
+                            str(round(x, decimal_places))
+                            for x in median_secondary_entropy_vector
+                        ]
+                    )
+                    if median_secondary_entropy_vector
+                    else "-",
                 }
 
                 # Display amplicon vectors

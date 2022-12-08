@@ -5,7 +5,7 @@ def load_scheme(bed, clip=True):
     with open(bed) as scheme_fh:
         for line in scheme_fh:
             data = line.strip().split()
-            start, end, tile = int(data[1]), int(data[2]), data[3] 
+            start, end, tile = int(data[1]), int(data[2]), data[3]
             scheme, tile, side = tile.split("_", 2)
 
             if tile not in tiles_dict:
@@ -39,21 +39,25 @@ def load_scheme(bed, clip=True):
                 if start < tiles_dict[tile]["inside_end"]:
                     # Close the end of the inner window to the leftmost right position
                     tiles_dict[tile]["inside_end"] = start
-        
+
         tiles_list = []
         tiles_seen = set()
         scheme_fh.seek(0)
         for line in scheme_fh:
             data = line.strip().split()
-            start, end, tile = data[1], data[2], data[3] 
+            start, end, tile = data[1], data[2], data[3]
             scheme, tile, side = tile.split("_", 2)
             tile_tup = (scheme, tile, tiles_dict[tile])
-            if tiles_dict[tile]["inside_start"] != -1 and tiles_dict[tile]["inside_end"] != -1 and tile not in tiles_seen:
+            if (
+                tiles_dict[tile]["inside_start"] != -1
+                and tiles_dict[tile]["inside_end"] != -1
+                and tile not in tiles_seen
+            ):
                 tiles_list.append(tile_tup)
                 tiles_seen.add(tile)
 
-        tiles_list = sorted(tiles_list, key=lambda x: int(x[1])) # Sort by tile number
-        if clip: # Default
+        tiles_list = sorted(tiles_list, key=lambda x: int(x[1]))  # Sort by tile number
+        if clip:  # Default
             # Iterate through tiles and clip
             new_tiles = []
             for tile_index, tile_tuple in enumerate(tiles_list):
