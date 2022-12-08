@@ -20,28 +20,56 @@ min_mapping_qualities = [0, 30, 60]
 # Test params assembled together
 params = list(itertools.product(bams, min_base_qualities, min_mapping_qualities))
 
+
 def calculate_ref_region(bam, ref, start, end, min_base_qual, min_mapping_qual):
     samfile = pysam.AlignmentFile(bam, mode="rb")
-    normalising_factor = (1 / math.log2(6)) # Normalises maximum entropy to 1
-    secondary_normalising_factor = (1 / math.log2(5)) # Normalises maximum secondary_entropy to 1
+    normalising_factor = 1 / math.log2(6)  # Normalises maximum entropy to 1
+    secondary_normalising_factor = 1 / math.log2(
+        5
+    )  # Normalises maximum secondary_entropy to 1
     empty_bases = [0, 0, 0, 0, 0, 0]
-    invalid_base_percentages = [-1, -1, -1, -1, -1, -1] # Percentage values where coverage is zero
-    base_count = [{'A' : 0, 'C' : 0, 'G' : 0, 'T' : 0, 'DS' : 0, 'N' : 0} for _ in range(end - start)]
+    invalid_base_percentages = [
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+    ]  # Percentage values where coverage is zero
+    base_count = [
+        {"A": 0, "C": 0, "G": 0, "T": 0, "DS": 0, "N": 0} for _ in range(end - start)
+    ]
     region = [[] for _ in range(end - start)]
 
     # Truncate = true seems to get much closer to the output
-    for pileupcolumn in samfile.pileup(contig=ref, start=start, stop=end, min_base_quality=0, min_mapping_quality=0, max_depth=1000000000, stepper="nofilter", truncate=True):
-        ref_pos = pileupcolumn.reference_pos # type: ignore
+    for pileupcolumn in samfile.pileup(
+        contig=ref,
+        start=start,
+        stop=end,
+        min_base_quality=0,
+        min_mapping_quality=0,
+        max_depth=1000000000,
+        stepper="nofilter",
+        truncate=True,
+    ):
+        ref_pos = pileupcolumn.reference_pos  # type: ignore
 
         if start <= ref_pos < end:
-            for pileupread in pileupcolumn.pileups: # type: ignore
-                if (pileupread.alignment.mapping_quality < min_mapping_qual):
+            for pileupread in pileupcolumn.pileups:  # type: ignore
+                if pileupread.alignment.mapping_quality < min_mapping_qual:
                     continue
                 if (not pileupread.is_del) and (not pileupread.is_refskip):
-                    if pileupread.alignment.query_qualities[pileupread.query_position] >= min_base_qual:
-                        base_count[ref_pos - start][pileupread.alignment.query_sequence[pileupread.query_position]] += 1
+                    if (
+                        pileupread.alignment.query_qualities[pileupread.query_position]
+                        >= min_base_qual
+                    ):
+                        base_count[ref_pos - start][
+                            pileupread.alignment.query_sequence[
+                                pileupread.query_position
+                            ]
+                        ] += 1
                 else:
-                    base_count[ref_pos - start]['DS'] += 1
+                    base_count[ref_pos - start]["DS"] += 1
 
             # Investigate nsegments on pysam repository, and its usage in generating pileupcolumn pileups
             coverage = sum(base_count[ref_pos - start].values())
@@ -50,15 +78,26 @@ def calculate_ref_region(bam, ref, start, end, min_base_qual, min_mapping_qual):
                 b_c = list(base_count[ref_pos - start].values())
 
                 base_probabilities = [count / coverage for count in b_c]
-                base_percentages = [100 * probability for probability in base_probabilities]
-                entropy = normalising_factor * sum([-(x * math.log2(x)) if x != 0 else 0 for x in base_probabilities])
+                base_percentages = [
+                    100 * probability for probability in base_probabilities
+                ]
+                entropy = normalising_factor * sum(
+                    [-(x * math.log2(x)) if x != 0 else 0 for x in base_probabilities]
+                )
 
                 secondary_base_count = list(b_c)
                 secondary_base_count.pop(np.argmax(b_c))
                 secondary_coverage = sum(secondary_base_count)
                 if secondary_coverage != 0:
-                    secondary_base_probabilities = [count / secondary_coverage for count in secondary_base_count]
-                    secondary_entropy = secondary_normalising_factor * sum([-(x * math.log2(x)) if x != 0 else 0 for x in secondary_base_probabilities])
+                    secondary_base_probabilities = [
+                        count / secondary_coverage for count in secondary_base_count
+                    ]
+                    secondary_entropy = secondary_normalising_factor * sum(
+                        [
+                            -(x * math.log2(x)) if x != 0 else 0
+                            for x in secondary_base_probabilities
+                        ]
+                    )
                 else:
                     secondary_entropy = 1
             else:
@@ -73,7 +112,7 @@ def calculate_ref_region(bam, ref, start, end, min_base_qual, min_mapping_qual):
             region[ref_pos - start].extend(base_percentages)
             region[ref_pos - start].append(entropy)
             region[ref_pos - start].append(secondary_entropy)
-    
+
     # Fill empty rows
     for i, row in enumerate(region):
         if len(row) == 0:
@@ -97,13 +136,35 @@ def get_pysam_data(bam, min_base_quality=0, min_mapping_quality=0):
 
     for ref in samfile.references:
         ref_len = samfile.lengths[samfile.references.index(ref)]
-        num_reads = len([read for read in samfile.fetch(ref) if read.mapping_quality >= min_mapping_quality])
+        num_reads = len(
+            [
+                read
+                for read in samfile.fetch(ref)
+                if read.mapping_quality >= min_mapping_quality
+            ]
+        )
         region_markers = np.linspace(0, ref_len, num=num_workers + 1, dtype=int)
-        regions = [(region_markers[i], region_markers[i + 1]) for i in range(len(region_markers) - 1)]
+        regions = [
+            (region_markers[i], region_markers[i + 1])
+            for i in range(len(region_markers) - 1)
+        ]
 
         # Count the bases
-        with concurrent.futures.ProcessPoolExecutor(max_workers=num_workers) as executor:
-            results = {start : executor.submit(calculate_ref_region, bam, ref, start, end, min_base_quality, min_mapping_quality) for start, end in regions}
+        with concurrent.futures.ProcessPoolExecutor(
+            max_workers=num_workers
+        ) as executor:
+            results = {
+                start: executor.submit(
+                    calculate_ref_region,
+                    bam,
+                    ref,
+                    start,
+                    end,
+                    min_base_quality,
+                    min_mapping_quality,
+                )
+                for start, end in regions
+            }
 
         ref_data = []
         for start, _ in regions:
@@ -136,7 +197,7 @@ def get_stats(base_counts, ref, show_n_bases=False, long_format=False):
     for reference_pos, base_count in enumerate(base_counts):
         if not show_n_bases:
             base_count.pop(n_index)
-        
+
         # Defaults for when the coverage is zero
         base_percentages = invalid_percentages
         entropy = 1
@@ -152,16 +213,20 @@ def get_stats(base_counts, ref, show_n_bases=False, long_format=False):
             secondary_base_count.pop(np.argmax(base_count))
             secondary_coverage = sum(secondary_base_count)
             if secondary_coverage != 0:
-                secondary_base_probabilities = [count / secondary_coverage for count in secondary_base_count]
-                secondary_entropy = secondary_normalising_factor * get_entropy(secondary_base_probabilities)
+                secondary_base_probabilities = [
+                    count / secondary_coverage for count in secondary_base_count
+                ]
+                secondary_entropy = secondary_normalising_factor * get_entropy(
+                    secondary_base_probabilities
+                )
 
-        # Create row of basecount data, either in long format or wide format 
+        # Create row of basecount data, either in long format or wide format
         # Wide format is default
         if long_format:
             for base, count, percentage in zip(bases, base_count, base_percentages):
                 row = []
                 row.append(ref)
-                row.append(reference_pos + 1) # Output one-based coordinates
+                row.append(reference_pos + 1)  # Output one-based coordinates
                 row.append(coverage)
                 row.append(base)
                 row.append(count)
@@ -172,14 +237,14 @@ def get_stats(base_counts, ref, show_n_bases=False, long_format=False):
         else:
             row = []
             row.append(ref)
-            row.append(reference_pos + 1) # Output one-based coordinates
+            row.append(reference_pos + 1)  # Output one-based coordinates
             row.append(coverage)
             row.extend(base_count)
             row.extend(base_percentages)
             row.append(entropy)
             row.append(secondary_entropy)
             data.append(row)
-    
+
     return data
 
 
@@ -204,13 +269,20 @@ def open_samfile(bam):
     return samfile
 
 
-def old_basecount(bam, references=None, min_base_quality=0, min_mapping_quality=0, show_n_bases=False, long_format=False):
+def old_basecount(
+    bam,
+    references=None,
+    min_base_quality=0,
+    min_mapping_quality=0,
+    show_n_bases=False,
+    long_format=False,
+):
     samfile = open_samfile(bam)
     references = get_references(samfile, references)
 
     # Iterator through all reads in the file (including unmapped)
-    all_reads = samfile.fetch(until_eof=True) 
-    
+    all_reads = samfile.fetch(until_eof=True)
+
     # Prepare read_data structure
     read_data = {}
     for ref in references:
@@ -230,14 +302,19 @@ def old_basecount(bam, references=None, min_base_quality=0, min_mapping_quality=
                 read_data[ref]["qualities"].append(read.query_alignment_qualities)
                 read_data[ref]["starts"].append(read.reference_start)
                 read_data[ref]["ctuples"].append(read.cigartuples)
-        
+
     # For each reference, verify the read data and calculate num_reads
     for ref, ref_data in read_data.items():
-        if len({len(ref_data[x]) for x in ["reads", "qualities", "starts", "ctuples"]}) != 1:
-            raise Exception(f"The number of reads, qualities, starts and ctuples for {ref} do not match")
+        if (
+            len({len(ref_data[x]) for x in ["reads", "qualities", "starts", "ctuples"]})
+            != 1
+        ):
+            raise Exception(
+                f"The number of reads, qualities, starts and ctuples for {ref} do not match"
+            )
         ref_data["num_reads"] = len(ref_data["reads"])
 
-    basecount_data = {}    
+    basecount_data = {}
     for ref in references:
         # Count the bases
         base_counts = bcount(
@@ -246,17 +323,14 @@ def old_basecount(bam, references=None, min_base_quality=0, min_mapping_quality=
             read_data[ref]["reads"],
             read_data[ref]["qualities"],
             read_data[ref]["starts"],
-            read_data[ref]["ctuples"]
+            read_data[ref]["ctuples"],
         )
-            
+
         basecount_data[ref] = {
-            "rows" : get_stats(
-                    base_counts,
-                    ref,
-                    show_n_bases=show_n_bases,
-                    long_format=long_format
-                ), 
-            "num_reads" : read_data[ref]["num_reads"]
+            "rows": get_stats(
+                base_counts, ref, show_n_bases=show_n_bases, long_format=long_format
+            ),
+            "num_reads": read_data[ref]["num_reads"],
         }
 
     samfile.close()
@@ -266,10 +340,12 @@ def old_basecount(bam, references=None, min_base_quality=0, min_mapping_quality=
 @pytest.mark.parametrize("bam,mbq,mmq", params)
 def test_against_pysam(bam, mbq, mmq):
     # Create an index (if it doesn't already exist) in the same dir as the BAM
-    if not os.path.isfile(bam + '.bai'):
-        pysam.index(bam) # type: ignore
-    
-    bc = BaseCount(bam, min_base_quality=mbq, min_mapping_quality=mmq, show_n_bases=True)
+    if not os.path.isfile(bam + ".bai"):
+        pysam.index(bam)  # type: ignore
+
+    bc = BaseCount(
+        bam, min_base_quality=mbq, min_mapping_quality=mmq, show_n_bases=True
+    )
     test_data = get_pysam_data(bam, min_base_quality=mbq, min_mapping_quality=mmq)
 
     # Test for matching references
@@ -296,9 +372,17 @@ def test_against_pysam(bam, mbq, mmq):
 
 
 @pytest.mark.parametrize("bam,mbq,mmq", params)
-def test_against_old_basecount(bam, mbq, mmq):    
-    bc_old = old_basecount(bam, references=None, min_base_quality=mbq, min_mapping_quality=mmq, show_n_bases=True)
-    bc = BaseCount(bam, min_base_quality=mbq, min_mapping_quality=mmq, show_n_bases=True)
+def test_against_old_basecount(bam, mbq, mmq):
+    bc_old = old_basecount(
+        bam,
+        references=None,
+        min_base_quality=mbq,
+        min_mapping_quality=mmq,
+        show_n_bases=True,
+    )
+    bc = BaseCount(
+        bam, min_base_quality=mbq, min_mapping_quality=mmq, show_n_bases=True
+    )
 
     # Test for matching references
     assert bc.references == list(bc_old.keys())
