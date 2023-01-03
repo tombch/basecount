@@ -11,6 +11,8 @@ classifiers = [
     "Programming Language :: Python :: Implementation :: PyPy",
 ]
 
+[project.scripts]
+basemap = "basemap:run"
 
 [tool.maturin]
 python-source = "python"
