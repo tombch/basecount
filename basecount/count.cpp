@@ -3,15 +3,13 @@
 #include <vector>
 #include <string>
 
-
 std::vector<std::vector<unsigned int>> bcount(
     const unsigned int refLen,
     const unsigned int minBaseQuality,
     const std::vector<std::string> reads,
     const std::vector<std::vector<unsigned int>> qualities,
-    const std::vector<unsigned int> starts, 
-    const std::vector<std::vector<std::pair<unsigned int, unsigned int>>> ctuples
-    )
+    const std::vector<unsigned int> starts,
+    const std::vector<std::vector<std::pair<unsigned int, unsigned int>>> ctuples)
 {
     // 2D array that, for each position in the reference, counts A, C, G, T, deletions+skips and N (Illumina unclear basecall) present in the reads
     std::vector<std::vector<unsigned int>> baseCounts(refLen, std::vector<unsigned int>(6));
@@ -30,7 +28,7 @@ std::vector<std::vector<unsigned int>> bcount(
         // Sequence of operations describing how the read is aligned to the reference
         // Each pair is of the form (operation, length of operation)
         const std::vector<std::pair<unsigned int, unsigned int>> &tups = ctuples[i];
-        
+
         // Current position in the reference
         unsigned int refPos = starts[i];
 
@@ -55,13 +53,23 @@ std::vector<std::vector<unsigned int>> bcount(
                 {
                     if (quals[readPos] >= minBaseQuality)
                     {
-                        switch(read[readPos])
+                        switch (read[readPos])
                         {
-                            case 'A' : baseCounts.at(refPos).at(0) += 1; break;
-                            case 'C' : baseCounts.at(refPos).at(1) += 1; break;
-                            case 'G' : baseCounts.at(refPos).at(2) += 1; break;
-                            case 'T' : baseCounts.at(refPos).at(3) += 1; break;
-                            case 'N' : baseCounts.at(refPos).at(5) += 1; break;
+                        case 'A':
+                            baseCounts.at(refPos).at(0) += 1;
+                            break;
+                        case 'C':
+                            baseCounts.at(refPos).at(1) += 1;
+                            break;
+                        case 'G':
+                            baseCounts.at(refPos).at(2) += 1;
+                            break;
+                        case 'T':
+                            baseCounts.at(refPos).at(3) += 1;
+                            break;
+                        case 'N':
+                            baseCounts.at(refPos).at(5) += 1;
+                            break;
                         }
                     }
                     readPos += 1;
@@ -90,14 +98,13 @@ std::vector<std::vector<unsigned int>> bcount(
             }
 
             // Operations 4, 5 and 6 are soft clipping, hard clipping and padding respectively
-            // None of these affect the read.query_alignment_sequence passed in from pysam                    
+            // None of these affect the read.query_alignment_sequence passed in from pysam
             // Operation 9 is the 'back' operation which seems to be basically unheard of
             // TODO: can it be ignored?
         }
     }
     return baseCounts;
 }
-
 
 PYBIND11_MODULE(count, m)
 {
