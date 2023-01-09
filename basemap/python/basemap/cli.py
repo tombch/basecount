@@ -1,6 +1,8 @@
 from .api import all, query, iquery, parse_region
 import argparse
 import math
+import sys
+import csv
 
 
 def add_bam(parser):
@@ -166,13 +168,14 @@ def run():
             ]
         )
 
-    print("\t".join(columns))
+    writer = csv.writer(sys.stdout, delimiter="\t")
+    writer.writerow(columns)
 
     if args.command == "all":
         data = all(args.bam, args.mapq, args.baseq)
 
         for row in iterate(data, stats=args.stats, decimals=args.decimals):
-            print("\t".join(map(str, row)))
+            writer.writerow(row)
 
     elif args.command == "query":
         data = query(args.bam, args.region, args.mapq, args.baseq)
@@ -180,7 +183,7 @@ def run():
         for row in iterate(
             data, region=args.region, stats=args.stats, decimals=args.decimals
         ):
-            print("\t".join(map(str, row)))
+            writer.writerow(row)
 
     elif args.command == "iquery":
         data = iquery(args.bam, args.region, args.index, args.mapq, args.baseq)
@@ -188,4 +191,4 @@ def run():
         for row in iterate(
             data, region=args.region, stats=args.stats, decimals=args.decimals
         ):
-            print("\t".join(map(str, row)))
+            writer.writerow(row)
