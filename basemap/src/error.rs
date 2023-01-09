@@ -1,46 +1,47 @@
-pub enum BaseMapError {
-    KeyError,
-    BaseError,
-    IndexError,
-    IntegerOverflowError,
-    PositionError,
-    BaseQualityError,
-    MappingQualityError,
-}
+use std::error::Error;
+use std::fmt::{self, Display};
 
-use std::{
-    fmt::{Display, Formatter, Result as FmtResult},
-    num::ParseIntError,
-};
-
-/// The Error definition.  Variants can carry payloads, which I am using
-/// here to carry the source or causal error.  The variant does not need to
-/// have the same name as the foreign error type it wraps.
 #[derive(Debug)]
-pub enum Error {
-    // Other error variant definitions ...
-    ParseIntError(ParseIntError),
+pub enum BaseMapError {
+    KeyNotFound,
+    InvalidBase,
+    IntegerOverflow,
+    AlignmentStartNotFound,
+    AlignmentEndNotFound,
+    MappingQualityNotFound,
+    QualityScoreNotFound,
+    RegionNameNotFound,
+    ReferenceSequenceIDNotFound,
 }
 
-/// Allows your error to be displayed using `{}`, and not just `{:?}`
-impl Display for Error {
-    fn fmt(&self, f: &mut Formatter) -> FmtResult {
-        write!(
-            f,
-            "{}",
-            match self {
-                Error::ParseIntError(err) => format!("Error parsing data as an integer: {:?}", err),
-                // Add display implementations for other Error variants here
-            }
-        )
+impl Display for BaseMapError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            BaseMapError::KeyNotFound => f.write_str("KeyNotFound"),
+            BaseMapError::InvalidBase => f.write_str("InvalidBase"),
+            BaseMapError::IntegerOverflow => f.write_str("IntegerOverlow"),
+            BaseMapError::AlignmentStartNotFound => f.write_str("AlignmentStartNotFound"),
+            BaseMapError::AlignmentEndNotFound => f.write_str("AlignmentEndNotFound"),
+            BaseMapError::MappingQualityNotFound => f.write_str("MappingQualityNotFound"),
+            BaseMapError::QualityScoreNotFound => f.write_str("QualityScoreNotFound"),
+            BaseMapError::RegionNameNotFound => f.write_str("RegionNameNotFound"),
+            BaseMapError::ReferenceSequenceIDNotFound => f.write_str("ReferenceSequenceIDNotFound"),
+        }
     }
 }
 
-/// Automatically converts a `std::string::ParseError` into a
-/// `<this_crate>::error::Error` whenever coercion is needed--e.g. when
-/// using the unwrap/early-return operator (`?`)
-impl From<ParseIntError> for Error {
-    fn from(err: ParseIntError) -> Self {
-        Error::ParseIntError(err)
+impl Error for BaseMapError {
+    fn description(&self) -> &str {
+        match *self {
+            BaseMapError::KeyNotFound => "Key not found",
+            BaseMapError::InvalidBase => "Invalid base",
+            BaseMapError::IntegerOverflow => "Integer overflow",
+            BaseMapError::AlignmentStartNotFound => "Alignment start not found",
+            BaseMapError::AlignmentEndNotFound => "Alignment end not found",
+            BaseMapError::MappingQualityNotFound => "Mapping quality not found",
+            BaseMapError::QualityScoreNotFound => "Quality score not found",
+            BaseMapError::RegionNameNotFound => "Region name not found",
+            BaseMapError::ReferenceSequenceIDNotFound => "Reference sequence ID not found",
+        }
     }
 }
