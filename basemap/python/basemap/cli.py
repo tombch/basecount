@@ -1,5 +1,5 @@
+from .api import all, query, iquery, parse_region
 import argparse
-import basemap
 
 
 def add_index(parser):
@@ -12,6 +12,18 @@ def add_mapq(parser):
 
 def add_baseq(parser):
     parser.add_argument("--baseq", type=int, default=0)
+
+
+def iterate(data, region=None):
+    if region:
+        chrom, start, end = parse_region(region)
+        for (pos, ins_pos), row in sorted(data[chrom].items()):
+            if (not start or pos >= start) and (not end or pos <= end):
+                yield [pos, ins_pos, sum(row)] + row
+    else:
+        for chrom, chrom_data in data.items():
+            for (pos, ins_pos), row in sorted(chrom_data.items()):
+                yield [pos, ins_pos, sum(row)] + row
 
 
 def run():
@@ -42,47 +54,25 @@ def run():
 
     args = parser.parse_args()
 
-    if args.command == "all":
-        data = basemap.all(args.bam, args.mapq, args.baseq)
+    print("\t".join(["pos", "ins", "cov", "a", "c", "g", "t", "ds", "n"]))
 
-        pos = 1
-        for chrom in data.values():
-            while chrom.get((pos, 0)):
-                print("\t".join(map(str, [pos] + chrom[(pos, 0)])))
-                pos += 1
+    if args.command == "all":
+        data = all(args.bam, args.mapq, args.baseq)
+
+        for row in iterate(data):
+            print("\t".join(map(str, row)))
 
     elif args.command == "query":
-        region, start, end = basemap.parse_region(args.region)
+        data = query(args.bam, args.region, args.mapq, args.baseq)
 
-        data = basemap.query(args.bam, args.mapq, args.baseq, args.region)
-
-        if start:
-            pos = start
-        else:
-            pos = 1
-
-        while data[region].get((pos, 0)) and not (end and pos > end):
-            print("\t".join(map(str, [pos] + data[region][(pos, 0)])))
-            pos += 1
+        for row in iterate(data, region=args.region):
+            print("\t".join(map(str, row)))
 
     elif args.command == "iquery":
-        if not args.index:
-            args.index = args.bam + ".bai"
+        data = iquery(args.bam, args.region, args.index, args.mapq, args.baseq)
 
-        region, start, end = basemap.parse_region(args.region)
-
-        data = basemap.iquery(
-            args.bam, args.bam + ".bai", args.mapq, args.baseq, args.region
-        )
-
-        if start:
-            pos = start
-        else:
-            pos = 1
-
-        while data[region].get((pos, 0)) and not (end and pos > end):
-            print("\t".join(map(str, [pos] + data[region][(pos, 0)])))
-            pos += 1
+        for row in iterate(data, region=args.region):
+            print("\t".join(map(str, row)))
 
     else:
         print(

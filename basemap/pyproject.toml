@@ -12,7 +12,7 @@ classifiers = [
 ]
 
 [project.scripts]
-basemap = "basemap:run"
+basemap = "basemap.cli:run"
 
 [tool.maturin]
 python-source = "python"
