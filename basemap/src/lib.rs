@@ -1,24 +1,24 @@
 use noodles::bam::bai;
-use noodles::bam::Reader;
-use noodles::core::region::Interval;
-use noodles::core::region::ParseError;
-use noodles::core::Position;
-use noodles::core::Region;
+// use noodles::bed; // TODO
+use noodles::core::region::{Interval, ParseError};
+use noodles::core::{Position, Region};
 use noodles::sam::alignment::Record;
 use noodles::sam::record::cigar::op::Kind;
-use noodles::sam::record::sequence::Base;
-use noodles::sam::record::sequence::Sequence;
-use noodles::sam::record::QualityScores;
-use pyo3::exceptions::PyException;
-use pyo3::exceptions::PyIOError;
+use noodles::sam::record::sequence::{Base, Sequence};
+use noodles::sam::record::{Flags, QualityScores};
+use pyo3::exceptions::{PyException, PyIOError};
 use pyo3::prelude::*;
 use std::cmp;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fs::File;
+use std::io;
+
+mod error;
+use error::BaseMapError;
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
-pub struct Coordinate(usize, usize);
+struct Coordinate(usize, usize);
 
 impl IntoPy<PyObject> for Coordinate {
     fn into_py(self, py: Python<'_>) -> PyObject {
@@ -28,20 +28,20 @@ impl IntoPy<PyObject> for Coordinate {
 
 type CoordinateMap = HashMap<Coordinate, [u32; 6]>;
 
+type BaseCount = HashMap<String, CoordinateMap>;
+
 type RefIdToNameMap = HashMap<usize, String>;
 
 type RefNameToLengthMap = HashMap<String, usize>;
 
-type BaseCount = HashMap<String, CoordinateMap>;
-
 const INTEGER_OVERFLOW: &str = "Integer overflow when adding to seq_pos";
 
-fn get_reader(bam_path: String) -> Result<Reader<noodles::bgzf::Reader<File>>, Box<dyn Error>> {
+fn get_reader(bam_path: String) -> io::Result<noodles::bam::Reader<noodles::bgzf::Reader<File>>> {
     // Open file
     let file = File::open(bam_path)?;
 
     // Create a reader from the file
-    let mut reader = Reader::new(file);
+    let mut reader = noodles::bam::Reader::new(file);
 
     // Read the SAM header
     reader.read_header()?;
@@ -56,41 +56,36 @@ fn count_base(
     ref_pos: usize,
     seq_pos: Position,
     ins_pos: usize,
-) -> Result<(), Box<dyn Error>> {
+) {
     // Match the base at the given seq_pos, and update the CoordinateMap
     match seq.get(seq_pos) {
         Some(&Base::A) => {
             ref_map
                 .entry(Coordinate(ref_pos, ins_pos))
-                .or_insert([0; 6])[0] += 1;
-            Ok(())
+                .or_insert([0; 6])[0] += 1
         }
         Some(&Base::C) => {
             ref_map
                 .entry(Coordinate(ref_pos, ins_pos))
-                .or_insert([0; 6])[1] += 1;
-            Ok(())
+                .or_insert([0; 6])[1] += 1
         }
         Some(&Base::G) => {
             ref_map
                 .entry(Coordinate(ref_pos, ins_pos))
-                .or_insert([0; 6])[2] += 1;
-            Ok(())
+                .or_insert([0; 6])[2] += 1
         }
         Some(&Base::T) => {
             ref_map
                 .entry(Coordinate(ref_pos, ins_pos))
-                .or_insert([0; 6])[3] += 1;
-            Ok(())
+                .or_insert([0; 6])[3] += 1
         }
         Some(&Base::N) => {
             ref_map
                 .entry(Coordinate(ref_pos, ins_pos))
-                .or_insert([0; 6])[5] += 1;
-            Ok(())
+                .or_insert([0; 6])[5] += 1
         }
-        Some(x) => Err(Box::from(format!("Unrecognised base: {}", x))),
-        None => Err(Box::from(format!("Invalid index: {}", seq_pos.get()))),
+        Some(x) => panic!("Encountered invalid read base: {}", x),
+        None => panic!("Attempted to access invalid read index: {}", seq_pos.get()),
     }
 }
 
@@ -122,11 +117,11 @@ fn count_record(
             Kind::Match | Kind::SequenceMatch | Kind::SequenceMismatch => {
                 for _ in 1..=cig.len() {
                     if min_base_quality(quals, seq_pos, base_quality)? {
-                        count_base(ref_map, seq, ref_pos, seq_pos, 0)?;
+                        count_base(ref_map, seq, ref_pos, seq_pos, 0);
                     }
 
                     ref_pos += 1;
-                    seq_pos = seq_pos.checked_add(1).expect(INTEGER_OVERFLOW);
+                    seq_pos = seq_pos.checked_add(1).ok_or(INTEGER_OVERFLOW)?;
                 }
             }
 
@@ -134,10 +129,10 @@ fn count_record(
             Kind::Insertion => {
                 for i in 1..=cig.len() {
                     if min_base_quality(quals, seq_pos, base_quality)? {
-                        count_base(ref_map, seq, ref_pos, seq_pos, i)?;
+                        count_base(ref_map, seq, ref_pos, seq_pos, i);
                     }
 
-                    seq_pos = seq_pos.checked_add(1).expect(INTEGER_OVERFLOW);
+                    seq_pos = seq_pos.checked_add(1).ok_or(INTEGER_OVERFLOW)?;
                 }
             }
 
@@ -151,7 +146,7 @@ fn count_record(
 
             // Softclip consumes the sequence only
             Kind::SoftClip => {
-                seq_pos = seq_pos.checked_add(cig.len()).expect(INTEGER_OVERFLOW);
+                seq_pos = seq_pos.checked_add(cig.len()).ok_or(INTEGER_OVERFLOW)?;
             }
 
             // Hardclip and padding doesn't consume the reference or sequence
@@ -276,7 +271,7 @@ fn min_mapping_quality(record: &Record, mapping_quality: usize) -> Result<bool, 
 }
 
 #[pyfunction]
-fn all(bam_path: String, mapping_quality: usize, base_quality: usize) -> PyResult<BaseCount> {
+fn all_(bam_path: String, mapping_quality: usize, base_quality: usize) -> PyResult<BaseCount> {
     // Map of maps, storing count data for each reference
     let mut map: BaseCount = BaseCount::new();
 
@@ -300,10 +295,18 @@ fn all(bam_path: String, mapping_quality: usize, base_quality: usize) -> PyResul
         }
     }
 
+    let flags = Flags::from(
+        Flags::UNMAPPED.bits()
+            + Flags::SUPPLEMENTARY.bits()
+            + Flags::SECONDARY.bits()
+            + Flags::QC_FAIL.bits()
+            + Flags::DUPLICATE.bits(),
+    );
+
     for result in reader.records() {
         let record = result?;
 
-        if record.flags().is_unmapped()
+        if record.flags().intersects(flags)
             || !min_mapping_quality(&record, mapping_quality)
                 .map_err(|x| PyException::new_err(x.to_string()))?
         {
@@ -330,11 +333,11 @@ fn all(bam_path: String, mapping_quality: usize, base_quality: usize) -> PyResul
 }
 
 #[pyfunction]
-fn query(
+fn query_(
     bam_path: String,
+    region: String,
     mapping_quality: usize,
     base_quality: usize,
-    region: String,
 ) -> PyResult<BaseCount> {
     // Create initial maps
     let (mut ref_seq_ids, mut ref_lengths, mut map) = init_maps();
@@ -365,10 +368,18 @@ fn query(
         .get_mut(region_name)
         .expect("Could not find region_name in map");
 
+    let flags = Flags::from(
+        Flags::UNMAPPED.bits()
+            + Flags::SUPPLEMENTARY.bits()
+            + Flags::SECONDARY.bits()
+            + Flags::QC_FAIL.bits()
+            + Flags::DUPLICATE.bits(),
+    );
+
     for result in reader.records() {
         let record = result?;
 
-        if record.flags().is_unmapped()
+        if record.flags().intersects(flags)
             || !record_in_region(&record, &ref_seq_ids, &region)
                 .map_err(|x| PyException::new_err(x.to_string()))?
             || !min_mapping_quality(&record, mapping_quality)
@@ -384,12 +395,12 @@ fn query(
 }
 
 #[pyfunction]
-fn iquery(
+fn iquery_(
     bam_path: String,
     bai_path: String,
+    region: String,
     mapping_quality: usize,
     base_quality: usize,
-    region: String,
 ) -> PyResult<BaseCount> {
     // Create initial maps
     let (mut ref_seq_ids, mut ref_lengths, mut map) = init_maps();
@@ -428,10 +439,18 @@ fn iquery(
         .get_mut(region_name)
         .expect("Could not find region_name in map");
 
+    let flags = Flags::from(
+        Flags::UNMAPPED.bits()
+            + Flags::SUPPLEMENTARY.bits()
+            + Flags::SECONDARY.bits()
+            + Flags::QC_FAIL.bits()
+            + Flags::DUPLICATE.bits(),
+    );
+
     for result in query {
         let record = result?;
 
-        if record.flags().is_unmapped()
+        if record.flags().intersects(flags)
             || !record_in_region(&record, &ref_seq_ids, &region)
                 .map_err(|x| PyException::new_err(x.to_string()))?
             || !min_mapping_quality(&record, mapping_quality)
@@ -447,7 +466,7 @@ fn iquery(
 }
 
 #[pyfunction]
-fn parse_region(region: String) -> PyResult<(String, usize, usize)> {
+fn parse_region_(region: String) -> PyResult<(String, usize, usize)> {
     let region: Region = region
         .parse()
         .map_err(|x: ParseError| PyException::new_err(x.to_string()))?;
@@ -467,10 +486,10 @@ fn parse_region(region: String) -> PyResult<(String, usize, usize)> {
 /// A Python module implemented in Rust.
 #[pymodule]
 fn basemap(_py: Python, m: &PyModule) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(all, m)?)?;
-    m.add_function(wrap_pyfunction!(query, m)?)?;
-    m.add_function(wrap_pyfunction!(iquery, m)?)?;
-    m.add_function(wrap_pyfunction!(parse_region, m)?)?;
+    m.add_function(wrap_pyfunction!(all_, m)?)?;
+    m.add_function(wrap_pyfunction!(query_, m)?)?;
+    m.add_function(wrap_pyfunction!(iquery_, m)?)?;
+    m.add_function(wrap_pyfunction!(parse_region_, m)?)?;
 
     Ok(())
 }
